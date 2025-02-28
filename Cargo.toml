@@ -1,0 +1,48 @@
+[package]
+name = "fluid"
+version = "0.1.0"
+edition = "2021"
+
+# [unstable]
+# codegen-backend = true
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+# codegen-backend = "cranelift"
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
+# codegen-backend = "llvm"
+
+# Enable more optimization in the release profile at the cost of compile time.
+[profile.release]
+# Compile the entire crate as one unit.
+# Slows compile times, marginal improvements.
+codegen-units = 1
+# Do a second optimization pass over the entire program, including dependencies.
+# Slows compile times, marginal improvements.
+lto = "thin"
+
+[dependencies]
+bevy = { version = "0.15.3", features = [
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gizmos",
+    "bevy_render",
+    "bevy_state",
+    "bevy_text",
+    "bevy_window",
+    "bevy_winit",
+    "dynamic_linking",
+    "multi_threaded",
+    "wayland",
+], default-features = false }
+bevy_egui = "0.33.0"
+rand = "0.9.0"
+rayon = "1.10.0"
+log = { version = "*", features = [
+    "max_level_debug",
+    "release_max_level_warn",
+] }
