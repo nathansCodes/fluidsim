@@ -43,14 +43,39 @@ pub struct Sim {
 
 impl Sim {
     pub fn density_at_point(&self, point: Vec2) -> f32 {
+        if self.positions.is_empty() {
+            return 0.0;
+        }
+
         let mut density = 0.0;
 
-        for pos in &self.predicted_positions {
-            let distance = (pos - point).length();
+        let center = pos_to_cell_coord(point, self.smoothing_radius);
+        let sqr_radius = self.smoothing_radius.squared();
 
-            let influence = smoothing_kernel(distance, self.smoothing_radius);
+        for offset in CELL_OFFSETS {
+            let hash = hash_cell_coord(center + offset);
+            let key = self.get_key_from_hash(hash);
+            let start_index = self.start_indices[key];
 
-            density += influence;
+            if start_index == usize::MAX {
+                continue;
+            }
+
+            for (particle_index, particle_cell_key) in &self.spatial_lookup[start_index..] {
+                if *particle_cell_key != key {
+                    break;
+                }
+
+                let sqr_dst = (self.predicted_positions[*particle_index] - point).length_squared();
+
+                if sqr_dst > sqr_radius {
+                    continue;
+                }
+
+                let influence = smoothing_kernel(sqr_dst.sqrt(), self.smoothing_radius);
+
+                density += influence;
+            }
         }
 
         density
@@ -99,6 +124,10 @@ impl Sim {
                 let slope = smoothing_kernel_derivative(distance, self.smoothing_radius);
 
                 let density = self.densities[*particle_index];
+
+                if density == f32::NAN {
+                    println!("!!!!!!!");
+                }
 
                 let shared_pressure = self.shared_pressure(density, self.densities[particle])
                     * self.pressure_multiplier;
@@ -367,7 +396,7 @@ fn smoothing_kernel(distance: f32, radius: f32) -> f32 {
     }
 
     let volume = 6.0 / (PI * radius.powf(4.0));
-    (radius - distance).squared() / volume
+    (radius - distance).squared() * volume
 }
 
 fn smoothing_kernel_derivative(distance: f32, radius: f32) -> f32 {
