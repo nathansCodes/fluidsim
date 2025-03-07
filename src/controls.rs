@@ -36,7 +36,7 @@ impl Default for InteractionSettings {
     fn default() -> Self {
         Self {
             custom: true,
-            force: 10.0,
+            force: 5.0,
             radius: 3.5,
         }
     }

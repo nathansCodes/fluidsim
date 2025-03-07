@@ -37,9 +37,9 @@ struct SpawnInfo {
 impl Default for SpawnInfo {
     fn default() -> Self {
         Self {
-            num_particles: 1000,
+            num_particles: 1500,
             center: Vec2::ZERO,
-            spacing: 0.1,
+            spacing: 0.15,
         }
     }
 }
