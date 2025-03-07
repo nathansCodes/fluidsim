@@ -336,7 +336,9 @@ pub fn simulate(
             let direction = (sim.positions[i] - mouse_pos) / distance;
             let slope = smoothing_kernel_derivative(distance, mouse_radius);
 
-            let vel = -direction * slope * mouse_force;
+            let strength = mouse_force * mouse_radius;
+
+            let vel = -direction * slope * strength;
 
             sim.velocities[i] += match interaction.get() {
                 InteractionMode::Attract => vel,
