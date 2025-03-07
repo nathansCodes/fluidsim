@@ -117,6 +117,7 @@ impl Sim {
                     let x = rand::random_range(-0.3..0.3);
                     let y = rand::random_range(-0.3..0.3);
                     pressure_force += Vec2::new(x, y);
+                    continue;
                 }
 
                 let direction = (pos - point) / distance;
@@ -124,10 +125,6 @@ impl Sim {
                 let slope = smoothing_kernel_derivative(distance, self.smoothing_radius);
 
                 let density = self.densities[*particle_index];
-
-                if density == f32::NAN {
-                    println!("!!!!!!!");
-                }
 
                 let shared_pressure = self.shared_pressure(density, self.densities[particle])
                     * self.pressure_multiplier;
@@ -232,7 +229,7 @@ pub struct DebugData {
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn simulate(
-    mut sim: ResMut<Sim>,
+    sim: ResMut<Sim>,
     time: Res<Time>,
     mut gizmos: Gizmos,
     q_camera: Query<(&Camera, &GlobalTransform), (With<Camera2d>, With<SimCamera>)>,
@@ -255,7 +252,7 @@ pub fn simulate(
     let smoothing_radius = sim.smoothing_radius;
     let num_particles = sim.positions.len();
 
-    let sim_shared = Arc::new(Mutex::new(&mut sim));
+    let sim_shared = Arc::new(Mutex::new(sim.into_inner()));
 
     // update cell keys and reset start indices
     (0..num_particles).into_par_iter().for_each(|i| {
@@ -268,12 +265,14 @@ pub fn simulate(
         sim.start_indices[i] = usize::MAX;
     });
 
+    // sort
     sim_shared
         .lock()
         .unwrap()
         .spatial_lookup
         .sort_by(|(_, k1), (_, k2)| k1.cmp(k2));
 
+    // set start indices
     for i in 0..num_particles {
         let mut sim = sim_shared.lock().unwrap();
 
@@ -294,8 +293,7 @@ pub fn simulate(
         let mut sim = sim_shared.lock().unwrap();
 
         sim.velocities[i] += gravity * delta;
-        let vel = sim.velocities[i];
-        sim.predicted_positions[i] = sim.positions[i] + vel * delta;
+        sim.predicted_positions[i] = sim.positions[i] + sim.velocities[i] * delta;
     });
 
     // density calculations
@@ -348,6 +346,7 @@ pub fn simulate(
         };
     });
 
+    // viscosity
     (0..num_particles).into_par_iter().for_each(|i| {
         let mut sim = sim_shared.lock().unwrap();
 
