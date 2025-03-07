@@ -225,6 +225,7 @@ pub enum ParticleColoring {
 pub struct DebugData {
     pub step_execution_time: u128,
     pub particle_colors: ParticleColoring,
+    pub log_data: bool,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -326,6 +327,13 @@ pub fn simulate(
         let pressure_force = sim.calculate_pressure_force(i);
 
         let pressure_acceleration = pressure_force / sim.densities[i];
+
+        if debug.log_data {
+            info!(
+                "pressure_acceleration for particle {i} is {pressure_acceleration}; pressure_force = {pressure_force}; density = {}",
+                sim.densities[i],
+            );
+        }
 
         sim.velocities[i] -= pressure_acceleration * delta;
 

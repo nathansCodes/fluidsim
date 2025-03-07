@@ -74,16 +74,20 @@ pub(super) fn ui(
             labeled_drag_value(ui, "Time Step", &mut sim.delta, 0.001);
             labeled_vec2(ui, "Bounds size", &mut sim.bounds_size);
 
+            ui.separator();
+            ui.heading("Debug");
+
             egui::ComboBox::from_label("Particle Color Mode")
                 .selected_text(format!("{:?}", debug_data.particle_colors))
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut debug_data.particle_colors, crate::sim::ParticleColoring::Density, "Density");
                     ui.selectable_value(&mut debug_data.particle_colors, crate::sim::ParticleColoring::Velocity, "Velocity");
                 });
+            ui.checkbox(&mut debug_data.log_data, "Log particle data");
 
             ui.separator();
-
             ui.heading("Mouse Settings");
+
             ui.checkbox(&mut mouse_settings.custom, "Customize Settings");
             ui.add_enabled_ui(mouse_settings.custom, |ui| {
                 labeled_drag_value(ui, "Radius", &mut mouse_settings.radius, 0.05);
