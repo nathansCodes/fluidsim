@@ -80,10 +80,31 @@ pub(super) fn ui(
             egui::ComboBox::from_label("Particle Color Mode")
                 .selected_text(format!("{:?}", debug_data.particle_colors))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut debug_data.particle_colors, crate::sim::ParticleColoring::Density, "Density");
-                    ui.selectable_value(&mut debug_data.particle_colors, crate::sim::ParticleColoring::Velocity, "Velocity");
+                    ui.selectable_value(
+                        &mut debug_data.particle_colors,
+                        crate::sim::ParticleColoring::Density,
+                        "Density",
+                    );
+                    ui.selectable_value(
+                        &mut debug_data.particle_colors,
+                        crate::sim::ParticleColoring::Velocity,
+                        "Velocity",
+                    );
                 });
-            ui.checkbox(&mut debug_data.log_data, "Log particle data");
+            egui::ComboBox::from_label("Log Level")
+                .selected_text(format!("{:?}", debug_data.log_level))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut debug_data.log_level,
+                        crate::sim::LogLevel::IllegalValues,
+                        "Illegal Values",
+                    );
+                    ui.selectable_value(
+                        &mut debug_data.log_level,
+                        crate::sim::LogLevel::Always,
+                        "Always",
+                    );
+                });
 
             ui.separator();
             ui.heading("Mouse Settings");
@@ -103,9 +124,14 @@ pub(super) fn ui(
                     ui,
                     "Number of Particles",
                     &mut ui_state.spawn_info.num_particles,
-                    1.0
+                    1.0,
                 );
-                labeled_drag_value(ui, "Particle Spacing", &mut ui_state.spawn_info.spacing, 1.0);
+                labeled_drag_value(
+                    ui,
+                    "Particle Spacing",
+                    &mut ui_state.spawn_info.spacing,
+                    1.0,
+                );
 
                 labeled_vec2(ui, "Center", &mut ui_state.spawn_info.center);
 
@@ -125,7 +151,9 @@ pub(super) fn ui(
                         return;
                     };
                     if let Some(position) = window.cursor_position() {
-                        let Ok(world_position) = q_camera.0.viewport_to_world_2d(q_camera.1, position) else {
+                        let Ok(world_position) =
+                            q_camera.0.viewport_to_world_2d(q_camera.1, position)
+                        else {
                             return;
                         };
                         ui.horizontal(|ui| {
@@ -133,10 +161,7 @@ pub(super) fn ui(
                                 "Density at mouse pointer: {}",
                                 sim.density_at_point(world_position),
                             ));
-                            ui.label(format!(
-                                "{} ms",
-                                debug_data.step_execution_time,
-                            ));
+                            ui.label(format!("{} ms", debug_data.step_execution_time,));
                         });
                     }
                 },

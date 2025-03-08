@@ -221,11 +221,18 @@ pub enum ParticleColoring {
     Velocity,
 }
 
+#[derive(Default, Debug, PartialEq, Eq)]
+pub enum LogLevel {
+    Always,
+    #[default]
+    IllegalValues,
+}
+
 #[derive(Resource, Default)]
 pub struct DebugData {
     pub step_execution_time: u128,
     pub particle_colors: ParticleColoring,
-    pub log_data: bool,
+    pub log_level: LogLevel,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -328,14 +335,26 @@ pub fn simulate(
 
         let pressure_acceleration = pressure_force / sim.densities[i];
 
-        if debug.log_data {
+        sim.velocities[i] -= pressure_acceleration * delta;
+
+        if debug.log_level == LogLevel::Always {
             info!(
-                "pressure_acceleration for particle {i} is {pressure_acceleration}; pressure_force = {pressure_force}; density = {}",
+                "pressure_acceleration for particle {i} is {pressure_acceleration}; pressure_force = {pressure_force}; density = {}; velocity = {}",
                 sim.densities[i],
+                sim.velocities[i],
+            );
+        } else if debug.log_level == LogLevel::IllegalValues
+            && (
+            !pressure_force.is_finite()
+            || !pressure_acceleration.is_finite()
+            || !sim.densities[i].is_finite()
+        ) {
+            warn!(
+                "pressure_acceleration for particle {i} is {pressure_acceleration}; pressure_force = {pressure_force}; density = {}; velocity = {}",
+                sim.densities[i],
+                sim.velocities[i],
             );
         }
-
-        sim.velocities[i] -= pressure_acceleration * delta;
 
         if let Some(mouse_pos) = mouse_pos_maybe {
             let distance = (sim.positions[i] - mouse_pos).length();
