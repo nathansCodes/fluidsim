@@ -66,7 +66,7 @@ fn update_particles(
     for (i, (pos, vel)) in sim.positions.iter().zip(&sim.velocities).enumerate() {
         let color: Color = match debug_data.particle_colors {
             ParticleColoring::Density => {
-                let density = sim.density_at_point(*pos);
+                let density = sim.density_at_point(*pos).0;
                 color::Srgba::BLUE
                     .mix(&color::Srgba::WHITE, density / sim.target_density)
                     .mix(
@@ -142,7 +142,7 @@ fn recieve_sim_events(
                 sim.positions.resize(info.num_particles, Vec2::ZERO);
                 sim.predicted_positions
                     .resize(info.num_particles, Vec2::ZERO);
-                sim.densities.resize(info.num_particles, 0.0);
+                sim.densities.resize(info.num_particles, (0.0, 0.0));
                 sim.spatial_lookup.resize(info.num_particles, (0, 0));
                 sim.start_indices.resize(info.num_particles, usize::MAX);
 

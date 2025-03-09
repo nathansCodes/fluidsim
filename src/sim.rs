@@ -32,22 +32,24 @@ pub struct Sim {
     pub positions: Vec<Vec2>,
     pub predicted_positions: Vec<Vec2>,
     pub velocities: Vec<Vec2>,
-    pub densities: Vec<f32>,
+    pub densities: Vec<(f32, f32)>,
     pub spatial_lookup: Vec<(usize, usize)>,
     pub start_indices: Vec<usize>,
     pub target_density: f32,
     pub pressure_multiplier: f32,
+    pub near_pressure_multiplier: f32,
     pub delta: f32,
     pub viscosity: f32,
 }
 
 impl Sim {
-    pub fn density_at_point(&self, point: Vec2) -> f32 {
+    pub fn density_at_point(&self, point: Vec2) -> (f32, f32) {
         if self.positions.is_empty() {
-            return 0.0;
+            return (0.0, 0.0);
         }
 
         let mut density = 0.0;
+        let mut near_density = 0.0;
 
         let center = pos_to_cell_coord(point, self.smoothing_radius);
         let sqr_radius = self.smoothing_radius.squared();
@@ -72,19 +74,21 @@ impl Sim {
                     continue;
                 }
 
-                let influence = smoothing_kernel(sqr_dst.sqrt(), self.smoothing_radius);
-
-                density += influence;
+                density += smoothing_kernel(sqr_dst.sqrt(), self.smoothing_radius);
+                near_density += spiky_kernel(sqr_dst.sqrt(), self.smoothing_radius);
             }
         }
 
-        density
+        (density, near_density)
     }
 
     pub fn calculate_pressure_force(&self, particle: usize) -> Vec2 {
         let mut pressure_force = Vec2::ZERO;
 
         let point = self.predicted_positions[particle];
+        let (density, near_density) = self.densities[particle];
+        let pressure = self.density_to_pressure(density);
+        let near_pressure = self.near_density_to_pressure(near_density);
 
         let center = pos_to_cell_coord(point, self.smoothing_radius);
         let sqr_radius = self.smoothing_radius.squared();
@@ -122,14 +126,18 @@ impl Sim {
 
                 let direction = (pos - point) / distance;
 
-                let slope = smoothing_kernel_derivative(distance, self.smoothing_radius);
+                let (other_density, other_near_density) = self.densities[*particle_index];
 
-                let density = self.densities[*particle_index];
+                let shared_pressure = (pressure + self.density_to_pressure(other_density)) / 2.0;
+                let shared_near_pressure =
+                    (near_pressure + self.near_density_to_pressure(other_near_density)) / 2.0;
 
-                let shared_pressure = self.shared_pressure(density, self.densities[particle])
-                    * self.pressure_multiplier;
+                let force = smoothing_kernel_derivative(distance, self.smoothing_radius);
+                let near_force = spiky_kernel_derivative(distance, self.smoothing_radius);
 
-                pressure_force += shared_pressure * direction * slope / density;
+                pressure_force += shared_pressure * direction * force / other_density;
+                pressure_force +=
+                    shared_near_pressure * direction * near_force / other_near_density;
             }
         }
 
@@ -180,12 +188,12 @@ impl Sim {
         viscosity_force * self.viscosity
     }
 
-    fn shared_pressure(&self, density: f32, other_density: f32) -> f32 {
-        (self.density_to_pressure(density) + self.density_to_pressure(other_density)) / 2.0
+    fn density_to_pressure(&self, density: f32) -> f32 {
+        (self.target_density - density) * self.pressure_multiplier
     }
 
-    fn density_to_pressure(&self, density: f32) -> f32 {
-        self.target_density - density
+    fn near_density_to_pressure(&self, near_density: f32) -> f32 {
+        near_density * self.near_pressure_multiplier
     }
 
     fn get_key_from_hash(&self, hash: usize) -> usize {
@@ -210,6 +218,7 @@ impl Default for Sim {
             pressure_multiplier: 1000.0,
             delta: 120.0,
             viscosity: 0.2,
+            near_pressure_multiplier: 0.0,
         }
     }
 }
@@ -331,27 +340,28 @@ pub fn simulate(
     (0..num_particles).into_par_iter().for_each(|i| {
         let mut sim = sim_shared.lock().unwrap();
 
+        let (density, near_density) = sim.densities[i];
+
         let pressure_force = sim.calculate_pressure_force(i);
 
-        let pressure_acceleration = pressure_force / sim.densities[i];
+        let pressure_acceleration = pressure_force / density;
 
         sim.velocities[i] -= pressure_acceleration * delta;
 
         if debug.log_level == LogLevel::Always {
             info!(
-                "pressure_acceleration for particle {i} is {pressure_acceleration}; pressure_force = {pressure_force}; density = {}; velocity = {}",
-                sim.densities[i],
+                "pressure_acceleration for particle {i} is {pressure_acceleration}; pressure_force = {pressure_force}; density = {density}; near_density = {near_density}; velocity = {}",
                 sim.velocities[i],
             );
         } else if debug.log_level == LogLevel::IllegalValues
             && (
             !pressure_force.is_finite()
             || !pressure_acceleration.is_finite()
-            || !sim.densities[i].is_finite()
+            || !density.is_finite()
+            || !near_density.is_finite()
         ) {
             warn!(
-                "pressure_acceleration for particle {i} is {pressure_acceleration}; pressure_force = {pressure_force}; density = {}; velocity = {}",
-                sim.densities[i],
+                "pressure_acceleration for particle {i} is {pressure_acceleration}; pressure_force = {pressure_force}; density = {density}; near_density = {near_density}; velocity = {}",
                 sim.velocities[i],
             );
         }
@@ -423,7 +433,7 @@ fn smoothing_kernel(distance: f32, radius: f32) -> f32 {
         return 0.0;
     }
 
-    let volume = 6.0 / (PI * radius.powf(4.0));
+    let volume = 6.0 / (PI * radius.powi(4));
     (radius - distance).squared() * volume
 }
 
@@ -432,9 +442,27 @@ fn smoothing_kernel_derivative(distance: f32, radius: f32) -> f32 {
         return 0.0;
     }
 
-    let scale = 12.0 / (f32::consts::PI * radius.powf(4.0));
+    let scale = 12.0 / (PI * radius.powi(4));
 
     scale * -(radius - distance)
+}
+
+fn spiky_kernel(distance: f32, radius: f32) -> f32 {
+    if distance >= radius {
+        return 0.0;
+    }
+
+    let volume = 10.0 / (PI * radius.powi(5));
+    (radius - distance).powi(3) * volume
+}
+
+fn spiky_kernel_derivative(distance: f32, radius: f32) -> f32 {
+    if distance >= radius {
+        return 0.0;
+    }
+
+    let volume = 30.0 / (PI * radius.powi(5));
+    -((radius - distance).squared()) * volume
 }
 
 fn pos_to_cell_coord(pos: Vec2, cell_size: f32) -> Vec2 {

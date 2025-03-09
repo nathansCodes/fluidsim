@@ -69,6 +69,12 @@ pub(super) fn ui(
             labeled_drag_value(ui, "Particle Size", &mut sim.particle_radius, 1.0);
             labeled_drag_value(ui, "Smoothing Radius", &mut sim.smoothing_radius, 1.0);
             labeled_drag_value(ui, "Pressure Multiplier", &mut sim.pressure_multiplier, 1.0);
+            labeled_drag_value(
+                ui,
+                "Near Pressure Multiplier",
+                &mut sim.near_pressure_multiplier,
+                0.05,
+            );
             labeled_drag_value(ui, "Viscosity", &mut sim.viscosity, 0.05);
             labeled_drag_value(ui, "Target Density", &mut sim.target_density, 0.001);
             labeled_drag_value(ui, "Time Step", &mut sim.delta, 0.001);
@@ -159,7 +165,7 @@ pub(super) fn ui(
                         ui.horizontal(|ui| {
                             ui.label(format!(
                                 "Density at mouse pointer: {}",
-                                sim.density_at_point(world_position),
+                                sim.density_at_point(world_position).0,
                             ));
                             ui.label(format!("{} ms", debug_data.step_execution_time,));
                         });
