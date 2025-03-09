@@ -76,12 +76,12 @@ fn update_particles(
                     .into()
             }
             ParticleColoring::Velocity => {
-                let factor = (vel.length_squared() / 10.0_f32.squared()).clamp(0.0, 10.0);
+                let factor = (vel.length_squared() / 8.0_f32.squared()).clamp(0.0, 10.0);
                 Oklaba::from(LinearRgba::from(BLUE))
-                    .mix(&LinearRgba::from(TEAL).into(), (factor / 3.0).min(1.0))
+                    .mix(&LinearRgba::from(TEAL).into(), (factor / 2.0).min(1.0))
                     .mix(
                         &LinearRgba::from(YELLOW).into(),
-                        ((factor - 3.0) / 3.0).clamp(0.0, 1.0),
+                        ((factor - 2.0) / 4.0).clamp(0.0, 1.0),
                     )
                     .mix(
                         &LinearRgba::from(RED).into(),
