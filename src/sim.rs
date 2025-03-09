@@ -218,7 +218,7 @@ impl Default for Sim {
             pressure_multiplier: 1000.0,
             delta: 120.0,
             viscosity: 0.2,
-            near_pressure_multiplier: 0.0,
+            near_pressure_multiplier: 40.0,
         }
     }
 }
@@ -305,7 +305,7 @@ pub fn simulate(
         }
     }
 
-    // velocities and predicted positions
+    // gravity and predicted positions
     (0..num_particles).into_par_iter().for_each(|i| {
         let mut sim = sim_shared.lock().unwrap();
 
@@ -335,6 +335,15 @@ pub fn simulate(
             gizmos.circle_2d(mouse_pos, mouse_radius, color::LinearRgba::GREEN);
         }
     }
+
+    // viscosity
+    (0..num_particles).into_par_iter().for_each(|i| {
+        let mut sim = sim_shared.lock().unwrap();
+
+        let viscosity_force = sim.calculate_viscosity_force(i);
+
+        sim.velocities[i] -= viscosity_force * delta;
+    });
 
     // the actual sim
     (0..num_particles).into_par_iter().for_each(|i| {
@@ -381,15 +390,6 @@ pub fn simulate(
                 InteractionMode::None => Vec2::ZERO,
             };
         };
-    });
-
-    // viscosity
-    (0..num_particles).into_par_iter().for_each(|i| {
-        let mut sim = sim_shared.lock().unwrap();
-
-        let viscosity_force = sim.calculate_viscosity_force(i);
-
-        sim.velocities[i] -= viscosity_force * delta;
     });
 
     // apply velocities and collide with boundaries
@@ -462,7 +462,7 @@ fn spiky_kernel_derivative(distance: f32, radius: f32) -> f32 {
     }
 
     let volume = 30.0 / (PI * radius.powi(5));
-    -((radius - distance).squared()) * volume
+    (radius - distance).squared() * volume
 }
 
 fn pos_to_cell_coord(pos: Vec2, cell_size: f32) -> Vec2 {
