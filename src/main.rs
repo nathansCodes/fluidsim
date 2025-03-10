@@ -1,4 +1,5 @@
 mod controls;
+mod debug;
 mod sim;
 mod ui;
 
@@ -6,8 +7,10 @@ use bevy::color::palettes::basic::*;
 use bevy::math::FloatPow;
 use bevy::{app::App, prelude::Component, DefaultPlugins};
 use bevy::{color, prelude::*};
+
 use controls::ControlsPlugin;
-use sim::{simulate, DebugData, ParticleColoring, Sim};
+use debug::{debug_overlay, DebugData, ParticleColoring};
+use sim::{simulate, Sim};
 use ui::UiPlugin;
 
 fn main() {
@@ -90,6 +93,7 @@ fn update_particles(
                     .into()
             }
         };
+
         if let Some((_, transform, material_handle)) = particles.get_mut(i) {
             transform.translation = pos.extend(0.0);
             transform.scale = Vec3::new(sim.particle_radius, sim.particle_radius, 1.0);
@@ -178,9 +182,13 @@ impl Plugin for SimPlugin {
                 (
                     recieve_sim_events,
                     // simulate
-                    (simulate, update_particles)
-                        .chain()
-                        .run_if(in_state(SimState::Running).or(in_state(SimState::Step))),
+                    (
+                        (simulate, update_particles)
+                            .chain()
+                            .run_if(in_state(SimState::Running).or(in_state(SimState::Step))),
+                        debug_overlay,
+                    )
+                        .chain(),
                     (|mut next: ResMut<NextState<SimState>>| next.set(SimState::Paused))
                         .run_if(in_state(SimState::Step))
                         .after(update_particles),

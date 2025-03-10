@@ -1,12 +1,14 @@
+use std::ops::BitXorAssign;
+
 use bevy::{color, prelude::*, window::PrimaryWindow};
 use bevy_egui::{
-    egui::{self, emath, panel::Side, Response, Ui, WidgetText},
+    egui::{self, emath, panel::Side, Response, SelectableLabel, Ui, WidgetText},
     EguiContexts, EguiPlugin,
 };
 
 use crate::{
     controls::{InteractionSettings, SimCamera},
-    sim::DebugData,
+    debug::{DebugData, LogLevel, ParticleColoring},
     Sim, SimEvents, SimState, SpawnInfo,
 };
 
@@ -43,6 +45,56 @@ fn labeled_vec2(ui: &mut Ui, label: impl Into<WidgetText>, value: &mut Vec2) -> 
         .labelled_by(ui.label(label).id)
     })
     .response
+}
+
+fn bitflags_combobox<F: bitflags::Flags + BitXorAssign + Clone + Copy>(
+    ui: &mut Ui,
+    label: impl Into<WidgetText>,
+    value: &mut F,
+) {
+    let current_name = if value.is_empty() {
+        "None".to_string()
+    } else if value.is_all() {
+        "All".to_string()
+    } else {
+        F::FLAGS
+            .iter()
+            .filter_map(|f| {
+                if f.value().intersects(*value) {
+                    Some(f.name())
+                } else {
+                    None
+                }
+            })
+            .fold(None, |acc: Option<String>, n| {
+                if let Some(acc) = acc {
+                    Some(acc + ", " + n)
+                } else {
+                    Some(n.to_string())
+                }
+            })
+            .unwrap()
+    };
+
+    egui::ComboBox::from_label(label)
+        .selected_text(current_name)
+        .show_ui(ui, |ui| {
+            let label = SelectableLabel::new(value.is_empty(), "None");
+            if ui.add(label).clicked() {
+                *value = F::empty();
+            }
+            for flag in F::FLAGS {
+                if ui
+                    .add(SelectableLabel::new(
+                        value.intersects(*flag.value()),
+                        flag.name(),
+                    ))
+                    .clicked()
+                {
+                    *value ^= *flag.value();
+                }
+            }
+        });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -83,17 +135,19 @@ pub(super) fn ui(
             ui.separator();
             ui.heading("Debug");
 
+            bitflags_combobox(ui, "Debug Overlay", &mut debug_data.debug_overlay);
+
             egui::ComboBox::from_label("Particle Color Mode")
                 .selected_text(format!("{:?}", debug_data.particle_colors))
                 .show_ui(ui, |ui| {
                     ui.selectable_value(
                         &mut debug_data.particle_colors,
-                        crate::sim::ParticleColoring::Density,
+                        ParticleColoring::Density,
                         "Density",
                     );
                     ui.selectable_value(
                         &mut debug_data.particle_colors,
-                        crate::sim::ParticleColoring::Velocity,
+                        ParticleColoring::Velocity,
                         "Velocity",
                     );
                 });
@@ -102,14 +156,10 @@ pub(super) fn ui(
                 .show_ui(ui, |ui| {
                     ui.selectable_value(
                         &mut debug_data.log_level,
-                        crate::sim::LogLevel::IllegalValues,
+                        LogLevel::IllegalValues,
                         "Illegal Values",
                     );
-                    ui.selectable_value(
-                        &mut debug_data.log_level,
-                        crate::sim::LogLevel::Always,
-                        "Always",
-                    );
+                    ui.selectable_value(&mut debug_data.log_level, LogLevel::Always, "Always");
                 });
 
             ui.separator();

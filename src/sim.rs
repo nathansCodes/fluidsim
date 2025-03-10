@@ -9,9 +9,12 @@ use bevy::{color, prelude::*, window::PrimaryWindow};
 use ops::FloatPow;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::controls::{InteractionMode, InteractionSettings, SimCamera};
+use crate::{
+    controls::{InteractionMode, InteractionSettings, SimCamera},
+    debug::{DebugData, LogLevel},
+};
 
-const CELL_OFFSETS: [Vec2; 9] = [
+pub const CELL_OFFSETS: [Vec2; 9] = [
     Vec2::new(-1.0, -1.0),
     Vec2::new(0.0, -1.0),
     Vec2::new(1.0, -1.0),
@@ -188,6 +191,44 @@ impl Sim {
         viscosity_force * self.viscosity
     }
 
+    pub fn spatial_query(&self, pos: Vec2) -> Vec<(usize, usize)> {
+        if self.positions.is_empty() {
+            return vec![];
+        }
+
+        let center = pos_to_cell_coord(pos, self.smoothing_radius);
+        let sqr_radius = self.smoothing_radius.squared();
+
+        let mut particles = Vec::new();
+
+        for offset in CELL_OFFSETS {
+            let hash = hash_cell_coord(center + offset);
+            let key = self.get_key_from_hash(hash);
+            let start_index = self.start_indices[key];
+
+            if start_index == usize::MAX {
+                continue;
+            }
+
+            let mut indices = self.spatial_lookup[start_index..]
+                .iter()
+                .take_while(|(_, particle_cell_key)| *particle_cell_key == key)
+                .filter(|(particle_index, _)| {
+                    let other_pos = self.positions[*particle_index];
+
+                    let sqr_dst = (other_pos - pos).length_squared();
+
+                    sqr_dst < sqr_radius
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            particles.append(&mut indices);
+        }
+
+        particles
+    }
+
     fn density_to_pressure(&self, density: f32) -> f32 {
         (self.target_density - density) * self.pressure_multiplier
     }
@@ -221,27 +262,6 @@ impl Default for Sim {
             near_pressure_multiplier: 40.0,
         }
     }
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
-pub enum ParticleColoring {
-    #[default]
-    Density,
-    Velocity,
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
-pub enum LogLevel {
-    Always,
-    #[default]
-    IllegalValues,
-}
-
-#[derive(Resource, Default)]
-pub struct DebugData {
-    pub step_execution_time: u128,
-    pub particle_colors: ParticleColoring,
-    pub log_level: LogLevel,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -465,7 +485,7 @@ fn spiky_kernel_derivative(distance: f32, radius: f32) -> f32 {
     (radius - distance).squared() * volume
 }
 
-fn pos_to_cell_coord(pos: Vec2, cell_size: f32) -> Vec2 {
+pub fn pos_to_cell_coord(pos: Vec2, cell_size: f32) -> Vec2 {
     (pos / cell_size).floor()
 }
 
