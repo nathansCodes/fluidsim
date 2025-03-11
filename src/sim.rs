@@ -340,19 +340,13 @@ pub fn simulate(
         sim.densities[i] = sim.density_at_point(sim.predicted_positions[i]);
     });
 
-    let (mouse_radius, mouse_force) = if mouse_settings.custom {
-        (mouse_settings.radius, mouse_settings.force)
-    } else {
-        (smoothing_radius, 1.0)
-    };
-
     let mouse_pos_maybe = window
         .cursor_position()
         .map(|p| cam.viewport_to_world_2d(global_transform, p).unwrap());
 
     if *interaction != InteractionMode::None {
         if let Some(mouse_pos) = mouse_pos_maybe {
-            gizmos.circle_2d(mouse_pos, mouse_radius, color::LinearRgba::GREEN);
+            gizmos.circle_2d(mouse_pos, mouse_settings.radius, color::LinearRgba::GREEN);
         }
     }
 
@@ -398,9 +392,9 @@ pub fn simulate(
         if let Some(mouse_pos) = mouse_pos_maybe {
             let distance = (sim.positions[i] - mouse_pos).length();
             let direction = (sim.positions[i] - mouse_pos) / distance;
-            let slope = smoothing_kernel_derivative(distance, mouse_radius);
+            let slope = smoothing_kernel_derivative(distance, mouse_settings.radius);
 
-            let strength = mouse_force * mouse_radius;
+            let strength = mouse_settings.force * mouse_settings.radius;
 
             let vel = -direction * slope * strength;
 

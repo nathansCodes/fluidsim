@@ -27,7 +27,6 @@ pub enum InteractionMode {
 
 #[derive(Resource)]
 pub struct InteractionSettings {
-    pub custom: bool,
     pub force: f32,
     pub radius: f32,
 }
@@ -35,7 +34,6 @@ pub struct InteractionSettings {
 impl Default for InteractionSettings {
     fn default() -> Self {
         Self {
-            custom: true,
             force: 5.0,
             radius: 3.5,
         }

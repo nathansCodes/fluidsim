@@ -165,11 +165,8 @@ pub(super) fn ui(
             ui.separator();
             ui.heading("Mouse Settings");
 
-            ui.checkbox(&mut mouse_settings.custom, "Customize Settings");
-            ui.add_enabled_ui(mouse_settings.custom, |ui| {
-                labeled_drag_value(ui, "Radius", &mut mouse_settings.radius, 0.05);
-                labeled_drag_value(ui, "Force Multiplier", &mut mouse_settings.force, 0.05);
-            });
+            labeled_drag_value(ui, "Radius", &mut mouse_settings.radius, 0.05);
+            labeled_drag_value(ui, "Force Multiplier", &mut mouse_settings.force, 0.05);
 
             ui.separator();
 
