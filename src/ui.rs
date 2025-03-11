@@ -2,7 +2,9 @@ use std::ops::BitXorAssign;
 
 use bevy::{color, prelude::*, window::PrimaryWindow};
 use bevy_egui::{
-    egui::{self, emath, panel::Side, Response, SelectableLabel, Ui, WidgetText},
+    egui::{
+        self, emath, panel::Side, CollapsingResponse, Response, SelectableLabel, Ui, WidgetText,
+    },
     EguiContexts, EguiPlugin,
 };
 
@@ -97,6 +99,16 @@ fn bitflags_combobox<F: bitflags::Flags + BitXorAssign + Clone + Copy>(
         });
 }
 
+fn collapsing_open<R>(
+    ui: &mut Ui,
+    label: impl Into<WidgetText>,
+    add_body: impl FnOnce(&mut Ui) -> R,
+) -> CollapsingResponse<R> {
+    egui::CollapsingHeader::new(label)
+        .default_open(true)
+        .show(ui, add_body)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn ui(
     mut contexts: EguiContexts,
@@ -115,83 +127,81 @@ pub(super) fn ui(
         .resizable(true)
         .min_width(300.0)
         .show(ctx, |ui| {
-            ui.heading("Simulation Settings");
-
-            labeled_vec2(ui, "Gravity", &mut sim.gravity);
-            labeled_drag_value(ui, "Particle Size", &mut sim.particle_radius, 1.0);
-            labeled_drag_value(ui, "Smoothing Radius", &mut sim.smoothing_radius, 0.025);
-            labeled_drag_value(ui, "Pressure Multiplier", &mut sim.pressure_multiplier, 1.0);
-            labeled_drag_value(
-                ui,
-                "Near Pressure Multiplier",
-                &mut sim.near_pressure_multiplier,
-                0.05,
-            );
-            labeled_drag_value(ui, "Viscosity", &mut sim.viscosity, 0.05);
-            labeled_drag_value(ui, "Target Density", &mut sim.target_density, 0.001);
-            labeled_drag_value(ui, "Time Step", &mut sim.delta, 0.001);
-            labeled_vec2(ui, "Bounds size", &mut sim.bounds_size);
-
-            ui.separator();
-            ui.heading("Debug");
-
-            bitflags_combobox(ui, "Debug Overlay", &mut debug_data.debug_overlay);
-
-            egui::ComboBox::from_label("Particle Color Mode")
-                .selected_text(format!("{:?}", debug_data.particle_colors))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut debug_data.particle_colors,
-                        ParticleColoring::Density,
-                        "Density",
-                    );
-                    ui.selectable_value(
-                        &mut debug_data.particle_colors,
-                        ParticleColoring::Velocity,
-                        "Velocity",
-                    );
-                });
-            egui::ComboBox::from_label("Log Level")
-                .selected_text(format!("{:?}", debug_data.log_level))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut debug_data.log_level,
-                        LogLevel::IllegalValues,
-                        "Illegal Values",
-                    );
-                    ui.selectable_value(&mut debug_data.log_level, LogLevel::Always, "Always");
-                });
-
-            ui.separator();
-            ui.heading("Mouse Settings");
-
-            labeled_drag_value(ui, "Radius", &mut mouse_settings.radius, 0.05);
-            labeled_drag_value(ui, "Force Multiplier", &mut mouse_settings.force, 0.05);
-
-            ui.separator();
-
-            ui.add_enabled_ui(*state.get() == SimState::Prepare, |ui| {
-                ui.heading("Spawn Parameters");
-
+            collapsing_open(ui, "Simulation Settings", |ui| {
+                labeled_vec2(ui, "Gravity", &mut sim.gravity);
+                labeled_drag_value(ui, "Particle Size", &mut sim.particle_radius, 0.005);
+                labeled_drag_value(ui, "Smoothing Radius", &mut sim.smoothing_radius, 0.025);
+                labeled_drag_value(ui, "Pressure Multiplier", &mut sim.pressure_multiplier, 1.0);
                 labeled_drag_value(
                     ui,
-                    "Number of Particles",
-                    &mut ui_state.spawn_info.num_particles,
-                    1.0,
+                    "Near Pressure Multiplier",
+                    &mut sim.near_pressure_multiplier,
+                    0.05,
                 );
-                labeled_drag_value(
-                    ui,
-                    "Particle Spacing",
-                    &mut ui_state.spawn_info.spacing,
-                    1.0,
-                );
-
-                labeled_vec2(ui, "Center", &mut ui_state.spawn_info.center);
-
-                if ui.button("Start Simulation").clicked() {
-                    evw.send(SimEvents::StartSimEvent(ui_state.spawn_info));
-                }
+                labeled_drag_value(ui, "Viscosity", &mut sim.viscosity, 0.05);
+                labeled_drag_value(ui, "Target Density", &mut sim.target_density, 0.001);
+                labeled_drag_value(ui, "Time Step", &mut sim.delta, 0.001);
+                labeled_vec2(ui, "Bounds size", &mut sim.bounds_size);
             });
+
+            collapsing_open(ui, "Debug", |ui| {
+                bitflags_combobox(ui, "Debug Overlay", &mut debug_data.debug_overlay);
+
+                egui::ComboBox::from_label("Particle Color Mode")
+                    .selected_text(format!("{:?}", debug_data.particle_colors))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut debug_data.particle_colors,
+                            ParticleColoring::Density,
+                            "Density",
+                        );
+                        ui.selectable_value(
+                            &mut debug_data.particle_colors,
+                            ParticleColoring::Velocity,
+                            "Velocity",
+                        );
+                    });
+
+                egui::ComboBox::from_label("Log Level")
+                    .selected_text(format!("{:?}", debug_data.log_level))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut debug_data.log_level,
+                            LogLevel::IllegalValues,
+                            "Illegal Values",
+                        );
+                        ui.selectable_value(&mut debug_data.log_level, LogLevel::Always, "Always");
+                    });
+            });
+
+            collapsing_open(ui, "Mouse Settings", |ui| {
+                labeled_drag_value(ui, "Radius", &mut mouse_settings.radius, 0.05);
+                labeled_drag_value(ui, "Force Multiplier", &mut mouse_settings.force, 0.05);
+            });
+
+            collapsing_open(ui, "Spawn Parameters", |ui| {
+                ui.add_enabled_ui(*state.get() == SimState::Prepare, |ui| {
+                    labeled_drag_value(
+                        ui,
+                        "Number of Particles",
+                        &mut ui_state.spawn_info.num_particles,
+                        1.0,
+                    );
+
+                    labeled_drag_value(
+                        ui,
+                        "Particle Spacing",
+                        &mut ui_state.spawn_info.spacing,
+                        1.0,
+                    );
+
+                    labeled_vec2(ui, "Center", &mut ui_state.spawn_info.center);
+                })
+            });
+
+            if ui.button("Start Simulation").clicked() {
+                evw.send(SimEvents::StartSimEvent(ui_state.spawn_info));
+            }
 
             if *state.get() != SimState::Prepare && ui.button("Reset Simulation").clicked() {
                 evw.send(SimEvents::ResetSim);

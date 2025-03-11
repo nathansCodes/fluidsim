@@ -101,9 +101,11 @@ fn cam_controller(
     let mut log_scale = projection.scale.ln();
 
     if let Some(prev_cursor_pos) = *zoom_diff {
-        let current_cursor_pos = fake_cam
+        let Ok(current_cursor_pos) = fake_cam
             .viewport_to_world_2d(global_transform, window.cursor_position().unwrap())
-            .unwrap();
+            else {
+            return;
+        };
 
         projection.scale = fake_projection.scale;
         frame_delta += prev_cursor_pos - current_cursor_pos;
