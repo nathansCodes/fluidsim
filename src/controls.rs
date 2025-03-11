@@ -47,7 +47,7 @@ fn setup(mut cmds: Commands) {
 }
 
 fn setup_cam_zoom(mut cam: Single<&mut OrthographicProjection, With<SimCamera>>) {
-    cam.scale = 0.4;
+    cam.scale = 0.05;
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
