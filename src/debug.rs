@@ -1,4 +1,4 @@
-use bevy::{color, prelude::*, window::PrimaryWindow};
+use bevy::{color::palettes::basic::*, math::FloatPow, prelude::*, window::PrimaryWindow};
 
 use crate::{
     controls::SimCamera,
@@ -25,6 +25,7 @@ bitflags::bitflags! {
         const CellQuery = 0b00000001;
         const CellGrid = 0b00000010;
         const SmoothingRadius = 0b00000100;
+        const VelocityArrows = 0b00001000;
     }
 }
 
@@ -36,6 +37,14 @@ pub struct DebugData {
     pub log_level: LogLevel,
 }
 
+#[derive(Default)]
+pub struct DebugInfo {
+    pub neighbors: usize,
+    pub discarded_neighbors: usize,
+    pub density: (f32, f32),
+    pub direction: Vec2,
+}
+
 #[allow(clippy::type_complexity)]
 pub fn debug_overlay(
     sim: Res<Sim>,
@@ -43,34 +52,39 @@ pub fn debug_overlay(
     q_camera: Query<(&Camera, &GlobalTransform), (With<Camera2d>, With<SimCamera>)>,
     q_window: Query<&Window, With<PrimaryWindow>>,
     mut gizmos: Gizmos,
-) {
+) -> Option<DebugInfo> {
     if debug_data.debug_overlay.is_empty() {
-        return;
+        return None;
     }
 
     let Ok((cam, global_transform)) = q_camera.get_single() else {
-        return;
+        return None;
     };
     let Ok(window) = q_window.get_single() else {
-        return;
+        return None;
     };
+
+    let mut debug_info = DebugInfo::default();
 
     let mouse_pos_maybe = window
         .cursor_position()
         .map(|p| cam.viewport_to_world_2d(global_transform, p).unwrap());
 
     if let Some(mouse_pos) = mouse_pos_maybe {
+        debug_info.density = sim.density_at_point(mouse_pos);
+
         if debug_data.debug_overlay.intersects(DebugOverlay::CellQuery) {
-            let particles = sim.spatial_query(mouse_pos);
+            let (discarded_neighbors, particles) = sim.spatial_query_details(mouse_pos);
+            debug_info.neighbors += particles.len();
+            debug_info.discarded_neighbors += discarded_neighbors;
 
             particles
                 .iter()
                 .for_each(|(particle_index, _particle_cell_key)| {
-                    let pos = sim.positions[*particle_index];
-
-                    gizmos.line_2d(mouse_pos, pos, color::palettes::basic::GREEN);
+                    gizmos.line_2d(mouse_pos, sim.positions[*particle_index], GREEN);
                 });
         }
+
         if debug_data.debug_overlay.intersects(DebugOverlay::CellGrid) {
             for offset in sim::CELL_OFFSETS {
                 let mouse_cell_coord = sim::pos_to_cell_coord(mouse_pos, sim.smoothing_radius);
@@ -80,7 +94,7 @@ pub fn debug_overlay(
                 gizmos.rect_2d(
                     cell_pos + Vec2::new(sim.smoothing_radius / 2.0, sim.smoothing_radius / 2.0),
                     Vec2::new(sim.smoothing_radius, sim.smoothing_radius),
-                    color::palettes::basic::GRAY,
+                    GRAY,
                 );
             }
         }
@@ -88,7 +102,8 @@ pub fn debug_overlay(
             .debug_overlay
             .intersects(DebugOverlay::SmoothingRadius)
         {
-            gizmos.circle_2d(mouse_pos, sim.smoothing_radius, color::palettes::basic::RED);
+            gizmos.circle_2d(mouse_pos, sim.smoothing_radius, RED);
         }
     }
+    Some(debug_info)
 }

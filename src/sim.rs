@@ -229,6 +229,51 @@ impl Sim {
         particles
     }
 
+    pub fn spatial_query_details(&self, pos: Vec2) -> (usize, Vec<(usize, usize)>) {
+        if self.positions.is_empty() {
+            return (0, vec![]);
+        }
+
+        let center = pos_to_cell_coord(pos, self.smoothing_radius);
+        let sqr_radius = self.smoothing_radius.squared();
+
+        let mut particles = Vec::new();
+
+        let mut discarded_particles = 0;
+
+        for offset in CELL_OFFSETS {
+            let hash = hash_cell_coord(center + offset);
+            let key = self.get_key_from_hash(hash);
+            let start_index = self.start_indices[key];
+
+            if start_index == usize::MAX {
+                continue;
+            }
+
+            let mut indices = self.spatial_lookup[start_index..]
+                .iter()
+                .take_while(|(_, particle_cell_key)| *particle_cell_key == key)
+                .filter(|(particle_index, _)| {
+                    let other_pos = self.positions[*particle_index];
+
+                    let sqr_dst = (other_pos - pos).length_squared();
+
+                    if sqr_dst < sqr_radius {
+                        true
+                    } else {
+                        discarded_particles += 1;
+                        false
+                    }
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            particles.append(&mut indices);
+        }
+
+        (discarded_particles, particles)
+    }
+
     fn density_to_pressure(&self, density: f32) -> f32 {
         (self.target_density - density) * self.pressure_multiplier
     }
@@ -483,7 +528,7 @@ pub fn pos_to_cell_coord(pos: Vec2, cell_size: f32) -> Vec2 {
     (pos / cell_size).floor()
 }
 
-fn hash_cell_coord(cell_coord: Vec2) -> usize {
+pub fn hash_cell_coord(cell_coord: Vec2) -> usize {
     let x = Wrapping((cell_coord.x.floor() as i32) as usize);
     let y = Wrapping((cell_coord.y.floor() as i32) as usize);
 

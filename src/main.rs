@@ -9,7 +9,7 @@ use bevy::{app::App, prelude::Component, DefaultPlugins};
 use bevy::{color, prelude::*};
 
 use controls::ControlsPlugin;
-use debug::{debug_overlay, DebugData, ParticleColoring};
+use debug::{debug_overlay, DebugData, DebugOverlay, ParticleColoring};
 use sim::{simulate, Sim};
 use ui::UiPlugin;
 
@@ -63,6 +63,7 @@ fn update_particles(
         With<Particle>,
     >,
     debug_data: Res<DebugData>,
+    mut gizmos: Gizmos,
 ) {
     let mut particles = q_particles.iter_mut().collect::<Vec<_>>();
 
@@ -99,6 +100,12 @@ fn update_particles(
             transform.scale = Vec3::new(sim.particle_radius, sim.particle_radius, 1.0);
 
             materials.get_mut(*material_handle).unwrap().color = color;
+            if debug_data
+                .debug_overlay
+                .intersects(DebugOverlay::VelocityArrows)
+            {
+                gizmos.arrow_2d(*pos, pos + vel / sim.delta * 10.0, color);
+            }
         } else {
             cmds.spawn((
                 Particle,
@@ -186,7 +193,7 @@ impl Plugin for SimPlugin {
                         (simulate, update_particles)
                             .chain()
                             .run_if(in_state(SimState::Running).or(in_state(SimState::Step))),
-                        debug_overlay,
+                        debug_overlay.pipe(ui::debug_info),
                     )
                         .chain(),
                     (|mut next: ResMut<NextState<SimState>>| next.set(SimState::Paused))

@@ -3,14 +3,15 @@ use std::ops::BitXorAssign;
 use bevy::{color, prelude::*, window::PrimaryWindow};
 use bevy_egui::{
     egui::{
-        self, emath, panel::Side, CollapsingResponse, Response, SelectableLabel, Ui, WidgetText,
+        self, emath, panel::Side, Align2, CollapsingResponse, Response, SelectableLabel, Ui,
+        WidgetText,
     },
     EguiContexts, EguiPlugin,
 };
 
 use crate::{
     controls::{InteractionSettings, SimCamera},
-    debug::{DebugData, LogLevel, ParticleColoring},
+    debug::{DebugData, DebugInfo, LogLevel, ParticleColoring},
     Sim, SimEvents, SimState, SpawnInfo,
 };
 
@@ -232,6 +233,33 @@ pub(super) fn ui(
         });
 
     ui_state.is_active = ctx.is_pointer_over_area() | ctx.dragged_id().is_some();
+}
+
+pub fn debug_info(
+    In(debug_info): In<Option<DebugInfo>>,
+    mut contexts: EguiContexts,
+    mut sim: ResMut<Sim>,
+    mut debug_data: ResMut<DebugData>,
+) {
+    let Some(debug_info) = debug_info else {
+        return;
+    };
+
+    egui::Window::new("Debug Info")
+        .anchor(Align2::RIGHT_TOP, egui::Vec2::new(-8., 8.))
+        .show(contexts.ctx_mut(), |ui| {
+            ui.label(format!("Neighbored particles: {}", debug_info.neighbors));
+            ui.label(format!(
+                "Neighbors outside of radius: {}",
+                debug_info.discarded_neighbors
+            ));
+            ui.label(format!(
+                "Particles discarded in search: {}",
+                sim.positions.len() - (debug_info.neighbors + debug_info.discarded_neighbors)
+            ));
+            ui.label(format!("Density: {}", debug_info.density.0));
+            ui.label(format!("Near density: {}", debug_info.density.1));
+        });
 }
 
 fn draw_bounds(sim: Res<Sim>, mut gizmos: Gizmos) {
