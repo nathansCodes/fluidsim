@@ -238,8 +238,7 @@ pub(super) fn ui(
 pub fn debug_info(
     In(debug_info): In<Option<DebugInfo>>,
     mut contexts: EguiContexts,
-    mut sim: ResMut<Sim>,
-    mut debug_data: ResMut<DebugData>,
+    sim: Res<Sim>,
 ) {
     let Some(debug_info) = debug_info else {
         return;

@@ -1,4 +1,4 @@
-use bevy::{color::palettes::basic::*, math::FloatPow, prelude::*, window::PrimaryWindow};
+use bevy::{color::palettes::basic::*, prelude::*, window::PrimaryWindow};
 
 use crate::{
     controls::SimCamera,
@@ -42,7 +42,6 @@ pub struct DebugInfo {
     pub neighbors: usize,
     pub discarded_neighbors: usize,
     pub density: (f32, f32),
-    pub direction: Vec2,
 }
 
 #[allow(clippy::type_complexity)]
