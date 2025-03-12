@@ -200,12 +200,20 @@ pub(super) fn ui(
                 })
             });
 
-            if ui.button("Start Simulation").clicked() {
-                evw.send(SimEvents::StartSimEvent(ui_state.spawn_info));
-            }
-
-            if *state.get() != SimState::Prepare && ui.button("Reset Simulation").clicked() {
-                evw.send(SimEvents::ResetSim);
+            match *state.get() {
+                SimState::Prepare => {
+                    if ui.button("Start Simulation").clicked() {
+                        evw.send(SimEvents::StartSimEvent(ui_state.spawn_info, false));
+                    }
+                    if ui.button("Start Paused").clicked() {
+                        evw.send(SimEvents::StartSimEvent(ui_state.spawn_info, true));
+                    }
+                }
+                _ => {
+                    if ui.button("Reset Simulation").clicked() {
+                        evw.send(SimEvents::ResetSim);
+                    }
+                }
             }
 
             egui::TopBottomPanel::new(egui::panel::TopBottomSide::Bottom, "stuff").show(

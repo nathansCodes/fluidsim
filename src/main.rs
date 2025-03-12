@@ -49,7 +49,7 @@ impl Default for SpawnInfo {
 
 #[derive(Event)]
 enum SimEvents {
-    StartSimEvent(SpawnInfo),
+    StartSimEvent(SpawnInfo, bool),
     ResetSim,
 }
 
@@ -148,7 +148,7 @@ fn recieve_sim_events(
                 sim.spatial_lookup.clear();
                 sim.start_indices.clear();
             }
-            SimEvents::StartSimEvent(info) => {
+            SimEvents::StartSimEvent(info, start_paused) => {
                 sim.velocities.resize(info.num_particles, Vec2::ZERO);
                 sim.positions.resize(info.num_particles, Vec2::ZERO);
                 sim.predicted_positions
@@ -170,7 +170,11 @@ fn recieve_sim_events(
 
                     sim.positions[i] = Vec2::new(x, y) + info.center;
                 }
-                next_state.set(SimState::Running);
+                if *start_paused {
+                    next_state.set(SimState::Step);
+                } else {
+                    next_state.set(SimState::Running);
+                }
             }
         }
     }
