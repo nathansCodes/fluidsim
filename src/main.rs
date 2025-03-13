@@ -10,7 +10,7 @@ use bevy::{color, prelude::*};
 
 use controls::ControlsPlugin;
 use debug::{debug_overlay, DebugData, DebugOverlay, ParticleColoring};
-use sim::{simulate, Sim};
+use sim::{cpu, Sim};
 use ui::UiPlugin;
 
 fn main() {
@@ -194,7 +194,7 @@ impl Plugin for SimPlugin {
                     recieve_sim_events,
                     // simulate
                     (
-                        (simulate, update_particles)
+                        (cpu::simulate, update_particles)
                             .chain()
                             .run_if(in_state(SimState::Running).or(in_state(SimState::Step))),
                         debug_overlay.pipe(ui::debug_info),

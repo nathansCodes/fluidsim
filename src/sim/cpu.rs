@@ -14,38 +14,7 @@ use crate::{
     debug::{DebugData, LogLevel},
 };
 
-pub const CELL_OFFSETS: [Vec2; 9] = [
-    Vec2::new(-1.0, -1.0),
-    Vec2::new(0.0, -1.0),
-    Vec2::new(1.0, -1.0),
-    Vec2::new(-1.0, 0.0),
-    Vec2::new(0.0, 0.0),
-    Vec2::new(1.0, 0.0),
-    Vec2::new(-1.0, 1.0),
-    Vec2::new(0.0, 1.0),
-    Vec2::new(1.0, 1.0),
-];
-
-#[derive(Resource)]
-pub struct Sim {
-    pub particle_radius: f32,
-    pub smoothing_radius: f32,
-    pub gravity: Vec2,
-    pub bounds_size: Vec2,
-    pub positions: Vec<Vec2>,
-    pub predicted_positions: Vec<Vec2>,
-    pub velocities: Vec<Vec2>,
-    pub densities: Vec<(f32, f32)>,
-    pub spatial_lookup: Vec<(usize, usize)>,
-    pub start_indices: Vec<usize>,
-    pub target_density: f32,
-    pub pressure_multiplier: f32,
-    pub near_pressure_multiplier: f32,
-    pub delta: f32,
-    pub viscosity: f32,
-}
-
-impl Sim {
+impl super::Sim {
     pub fn density_at_point(&self, point: Vec2) -> (f32, f32) {
         if self.positions.is_empty() {
             return (0.0, 0.0);
@@ -57,7 +26,7 @@ impl Sim {
         let center = pos_to_cell_coord(point, self.smoothing_radius);
         let sqr_radius = self.smoothing_radius.squared();
 
-        for offset in CELL_OFFSETS {
+        for offset in super::CELL_OFFSETS {
             let hash = hash_cell_coord(center + offset);
             let key = self.get_key_from_hash(hash);
             let start_index = self.start_indices[key];
@@ -96,7 +65,7 @@ impl Sim {
         let center = pos_to_cell_coord(point, self.smoothing_radius);
         let sqr_radius = self.smoothing_radius.squared();
 
-        for offset in CELL_OFFSETS {
+        for offset in super::CELL_OFFSETS {
             let hash = hash_cell_coord(center + offset);
             let key = self.get_key_from_hash(hash);
             let start_index = self.start_indices[key];
@@ -156,7 +125,7 @@ impl Sim {
         let center = pos_to_cell_coord(pos, self.smoothing_radius);
         let sqr_radius = self.smoothing_radius.squared();
 
-        for offset in CELL_OFFSETS {
+        for offset in super::CELL_OFFSETS {
             let hash = hash_cell_coord(center + offset);
             let key = self.get_key_from_hash(hash);
             let start_index = self.start_indices[key];
@@ -201,7 +170,7 @@ impl Sim {
 
         let mut particles = Vec::new();
 
-        for offset in CELL_OFFSETS {
+        for offset in super::CELL_OFFSETS {
             let hash = hash_cell_coord(center + offset);
             let key = self.get_key_from_hash(hash);
             let start_index = self.start_indices[key];
@@ -241,7 +210,7 @@ impl Sim {
 
         let mut discarded_particles = 0;
 
-        for offset in CELL_OFFSETS {
+        for offset in super::CELL_OFFSETS {
             let hash = hash_cell_coord(center + offset);
             let key = self.get_key_from_hash(hash);
             let start_index = self.start_indices[key];
@@ -287,31 +256,9 @@ impl Sim {
     }
 }
 
-impl Default for Sim {
-    fn default() -> Self {
-        Self {
-            particle_radius: 0.1,
-            smoothing_radius: 1.2,
-            gravity: Vec2::new(0.0, -10.0),
-            bounds_size: Vec2::new(16.0, 9.0) * 2.0,
-            positions: default(),
-            predicted_positions: default(),
-            velocities: default(),
-            densities: default(),
-            spatial_lookup: default(),
-            start_indices: default(),
-            target_density: 10.0,
-            pressure_multiplier: 1000.0,
-            delta: 120.0,
-            viscosity: 0.2,
-            near_pressure_multiplier: 40.0,
-        }
-    }
-}
-
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn simulate(
-    sim: ResMut<Sim>,
+    sim: ResMut<super::Sim>,
     time: Res<Time>,
     mut gizmos: Gizmos,
     q_camera: Query<(&Camera, &GlobalTransform), (With<Camera2d>, With<SimCamera>)>,
@@ -532,5 +479,5 @@ pub fn hash_cell_coord(cell_coord: Vec2) -> usize {
     let x = Wrapping((cell_coord.x.floor() as i32) as usize);
     let y = Wrapping((cell_coord.y.floor() as i32) as usize);
 
-    (x * Wrapping(101) + y * Wrapping(307)).0
+    (x * Wrapping(617) + y * Wrapping(307)).0
 }
