@@ -79,7 +79,7 @@ impl super::Sim {
                     break;
                 }
 
-                let pos = self.positions[*particle_index];
+                let pos = self.predicted_positions[*particle_index];
 
                 let sqr_dst = (pos - point).length_squared();
 
@@ -139,7 +139,7 @@ impl super::Sim {
                     break;
                 }
 
-                let other_pos = self.positions[*particle_index];
+                let other_pos = self.predicted_positions[*particle_index];
 
                 let sqr_dst = (other_pos - pos).length_squared();
 

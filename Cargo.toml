@@ -37,7 +37,6 @@ bevy = { version = "0.15.3", features = [
     "bevy_winit",
     "dynamic_linking",
     "multi_threaded",
-    "wayland",
 ], default-features = false }
 bevy_egui = "0.33.0"
 rand = "0.9.0"
@@ -47,3 +46,5 @@ log = { version = "*", features = [
     "release_max_level_warn",
 ] }
 bitflags = "2.9.0"
+#bevy_simple_compute = { path = "../bevy_simple_compute" }
+bevy_simple_compute = "0.15.3"

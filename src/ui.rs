@@ -12,6 +12,7 @@ use bevy_egui::{
 use crate::{
     controls::{InteractionSettings, SimCamera},
     debug::{DebugData, DebugInfo, LogLevel, ParticleColoring},
+    sim::Device,
     Sim, SimEvents, SimState, SpawnInfo,
 };
 
@@ -121,6 +122,8 @@ pub(super) fn ui(
     mut evw: EventWriter<SimEvents>,
     q_window: Option<Single<&Window, With<PrimaryWindow>>>,
     q_camera: Single<(&Camera, &GlobalTransform), With<SimCamera>>,
+    device: Res<State<Device>>,
+    mut next_device: ResMut<NextState<Device>>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -197,6 +200,19 @@ pub(super) fn ui(
                     );
 
                     labeled_vec2(ui, "Center", &mut ui_state.spawn_info.center);
+
+                    egui::ComboBox::from_label("Device")
+                        .selected_text(format!("{:?}", device.get()))
+                        .show_ui(ui, |ui| {
+                            if ui.button("CPU").clicked() {
+                                next_device.set(Device::CPU);
+                                eprintln!("set device to cpu");
+                            }
+                            if ui.button("GPU").clicked() {
+                                next_device.set(Device::GPU);
+                                eprintln!("set device to gpu");
+                            }
+                        })
                 })
             });
 
@@ -233,7 +249,7 @@ pub(super) fn ui(
                                 "Density at mouse pointer: {}",
                                 sim.density_at_point(world_position).0,
                             ));
-                            ui.label(format!("{} ms", debug_data.step_execution_time,));
+                            ui.label(format!("{} ms", debug_data.step_execution_time));
                         });
                     }
                 },

@@ -5,12 +5,15 @@ mod ui;
 
 use bevy::color::palettes::basic::*;
 use bevy::math::FloatPow;
+use bevy::render::gpu_readback::GpuReadbackPlugin;
 use bevy::{app::App, prelude::Component, DefaultPlugins};
 use bevy::{color, prelude::*};
 
+use bevy_simple_compute::prelude::{AppComputePlugin, AppComputeWorker, AppComputeWorkerPlugin};
 use controls::ControlsPlugin;
 use debug::{debug_overlay, DebugData, DebugOverlay, ParticleColoring};
-use sim::{cpu, Sim};
+use sim::gpu::SimComputeWorker;
+use sim::{cpu, gpu, Device, Sim};
 use ui::UiPlugin;
 
 fn main() {
@@ -22,7 +25,7 @@ fn main() {
 struct Particle;
 
 #[derive(States, Clone, PartialEq, Eq, Hash, Debug, Default)]
-enum SimState {
+pub enum SimState {
     #[default]
     Prepare,
     Running,
@@ -170,6 +173,7 @@ fn recieve_sim_events(
 
                     sim.positions[i] = Vec2::new(x, y) + info.center;
                 }
+
                 if *start_paused {
                     next_state.set(SimState::Step);
                 } else {
@@ -184,7 +188,10 @@ struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_state(SimState::default())
+        app.add_plugins(AppComputePlugin)
+            .add_plugins(AppComputeWorkerPlugin::<SimComputeWorker>::default())
+            .insert_state(SimState::default())
+            .insert_state(sim::Device::CPU)
             .init_resource::<Sim>()
             .init_resource::<DebugData>()
             .add_systems(
@@ -194,7 +201,12 @@ impl Plugin for SimPlugin {
                     recieve_sim_events,
                     // simulate
                     (
-                        (cpu::simulate, update_particles)
+                        (
+                            cpu::simulate.run_if(in_state(sim::Device::CPU)),
+                            gpu::simulate.run_if(in_state(sim::Device::GPU)),
+                            gpu::read_data.run_if(in_state(sim::Device::GPU)),
+                            update_particles,
+                        )
                             .chain()
                             .run_if(in_state(SimState::Running).or(in_state(SimState::Step))),
                         debug_overlay.pipe(ui::debug_info),
@@ -206,6 +218,10 @@ impl Plugin for SimPlugin {
                 ),
             )
             // .add_systems(Update, update_particles)
+            .add_systems(
+                OnExit(SimState::Prepare),
+                gpu::start.run_if(in_state(Device::GPU)),
+            )
             .add_plugins((ControlsPlugin, UiPlugin));
     }
 }
