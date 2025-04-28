@@ -15,9 +15,9 @@ use crate::{
 };
 
 impl super::Sim {
-    pub fn density_at_point(&self, point: Vec2) -> (f32, f32) {
-        if self.positions.is_empty() {
-            return (0.0, 0.0);
+    pub fn density_at_point(&self, point: Vec2) -> Vec2 {
+        if self.positions.is_empty() || self.spatial_lookup.is_empty() {
+            return Vec2::ZERO;
         }
 
         let mut density = 0.0;
@@ -51,14 +51,17 @@ impl super::Sim {
             }
         }
 
-        (density, near_density)
+        Vec2::new(density, near_density)
     }
 
     pub fn calculate_pressure_force(&self, particle: usize) -> Vec2 {
         let mut pressure_force = Vec2::ZERO;
 
         let point = self.predicted_positions[particle];
-        let (density, near_density) = self.densities[particle];
+        let Vec2 {
+            x: density,
+            y: near_density,
+        } = self.densities[particle];
         let pressure = self.density_to_pressure(density);
         let near_pressure = self.near_density_to_pressure(near_density);
 
@@ -98,7 +101,10 @@ impl super::Sim {
 
                 let direction = (pos - point) / distance;
 
-                let (other_density, other_near_density) = self.densities[*particle_index];
+                let Vec2 {
+                    x: other_density,
+                    y: other_near_density,
+                } = self.densities[*particle_index];
 
                 let shared_pressure = (pressure + self.density_to_pressure(other_density)) / 2.0;
                 let shared_near_pressure =
@@ -355,7 +361,7 @@ pub fn simulate(
     (0..num_particles).into_par_iter().for_each(|i| {
         let mut sim = sim_shared.lock().unwrap();
 
-        let (density, near_density) = sim.densities[i];
+        let Vec2 { x: density, y: near_density } = sim.densities[i];
 
         let pressure_force = sim.calculate_pressure_force(i);
 

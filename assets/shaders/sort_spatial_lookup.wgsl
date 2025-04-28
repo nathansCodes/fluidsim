@@ -1,7 +1,13 @@
 @group(0) @binding(0) var<storage, read_write> spatial_lookup: array<Entry>;
 @group(0) @binding(1) var<uniform> num_particles: u32;
-@group(0) @binding(2) var<storage, read_write> step_index: u32;
-@group(0) @binding(3) var<storage, read_write> stage_index: u32;
+
+struct Indices {
+    group_width: u32,
+    group_height: u32,
+    step_index: u32,
+}
+
+var<push_constant> push_consts: Indices;
 
 struct Entry {
     original_index: u32,
@@ -11,12 +17,13 @@ struct Entry {
 
 // Sort the given entries by their keys (smallest to largest)
 // This is done using bitonic merge sort, and takes multiple iterations
-@compute @workgroup_size(1)
+@compute @workgroup_size(128)
 fn sort_spatial_lookup(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x;
 
-    let group_width = 1 << (stage_index - step_index);
-    let group_height = 2 * group_width - 1;
+    let group_width = push_consts.group_width;
+    let group_height = push_consts.group_height;
+    let step_index = push_consts.step_index;
 
     let h_index = i & (group_width - 1);
     let index_left = h_index + (group_height + 1) * (i / group_width);
@@ -41,12 +48,12 @@ fn sort_spatial_lookup(@builtin(global_invocation_id) global_id: vec3<u32>) {
         spatial_lookup[index_right] = temp;
     }
 
-    if global_id.x == 0 {
-        step_index += 1;
-        if step_index > stage_index + 1 {
-            step_index = 0;
-            stage_index += 1;
-        }
-    }
+    // if global_id.x == num_particles-1 {
+    //     step_index += 1u;
+    //     if step_index > stage_index + 1 {
+    //         step_index = 0u;
+    //         stage_index += 1u;
+    //     }
+    // }
 }
 

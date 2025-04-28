@@ -4,7 +4,8 @@ use bevy::{
     window::PrimaryWindow,
 };
 
-use crate::{ui, SimState};
+use crate::sim::SimState;
+use crate::ui;
 
 #[derive(Component)]
 pub struct SimCamera;
@@ -101,9 +102,9 @@ fn cam_controller(
     let mut log_scale = projection.scale.ln();
 
     if let Some(prev_cursor_pos) = *zoom_diff {
-        let Ok(current_cursor_pos) = fake_cam
-            .viewport_to_world_2d(global_transform, window.cursor_position().unwrap())
-            else {
+        let Ok(current_cursor_pos) =
+            fake_cam.viewport_to_world_2d(global_transform, window.cursor_position().unwrap())
+        else {
             return;
         };
 

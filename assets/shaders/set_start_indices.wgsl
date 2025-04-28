@@ -1,9 +1,9 @@
-@group(0) @binding(1) var<storage, read_write> spatial_lookup: array<Entry>;
-@group(0) @binding(2) var<storage, read_write> start_indices: array<u32>;
-@group(0) @binding(3) var<uniform> num_particles: u32;
+@group(0) @binding(0) var<storage, read_write> spatial_lookup: array<Entry>;
+@group(0) @binding(1) var<storage, read_write> start_indices: array<u32>;
+@group(0) @binding(2) var<uniform> num_particles: u32;
 
 struct Entry {
-    originalIndex: u32,
+    original_index: u32,
 	hash: u32,
 	key: u32,
 }
@@ -23,7 +23,7 @@ struct Entry {
 // We can then loop until we reach a particle with a different cell key in order to iterate over all the particles in the cell.
 //
 // NOTE: offsets buffer must filled with values equal to (or greater than) its length to ensure that this works correctly
-@compute @workgroup_size(1)
+@compute @workgroup_size(128)
 fn set_start_indices(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x;
 

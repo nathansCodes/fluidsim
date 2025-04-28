@@ -1,6 +1,11 @@
 use std::ops::BitXorAssign;
 
-use bevy::{color, prelude::*, window::PrimaryWindow};
+use bevy::{
+    color,
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
+    prelude::*,
+    window::PrimaryWindow,
+};
 use bevy_egui::{
     egui::{
         self, emath, panel::Side, Align2, CollapsingResponse, Response, SelectableLabel, Ui,
@@ -12,8 +17,7 @@ use bevy_egui::{
 use crate::{
     controls::{InteractionSettings, SimCamera},
     debug::{DebugData, DebugInfo, LogLevel, ParticleColoring},
-    sim::Device,
-    Sim, SimEvents, SimState, SpawnInfo,
+    sim::{Device, Sim, SimEvents, SimState, SpawnInfo},
 };
 
 #[derive(Resource, Default)]
@@ -124,6 +128,7 @@ pub(super) fn ui(
     q_camera: Single<(&Camera, &GlobalTransform), With<SimCamera>>,
     device: Res<State<Device>>,
     mut next_device: ResMut<NextState<Device>>,
+    diagnostics: Res<DiagnosticsStore>,
 ) {
     let ctx = contexts.ctx_mut();
 
@@ -235,23 +240,31 @@ pub(super) fn ui(
             egui::TopBottomPanel::new(egui::panel::TopBottomSide::Bottom, "stuff").show(
                 ui.ctx(),
                 |ui| {
-                    let Some(window) = q_window else {
-                        return;
-                    };
-                    if let Some(position) = window.cursor_position() {
-                        let Ok(world_position) =
-                            q_camera.0.viewport_to_world_2d(q_camera.1, position)
-                        else {
+                    ui.horizontal(|ui| {
+                        let Some(window) = q_window else {
                             return;
                         };
-                        ui.horizontal(|ui| {
+
+                        if let Some(value) = diagnostics
+                            .get(&FrameTimeDiagnosticsPlugin::FPS)
+                            .and_then(|fps| fps.smoothed())
+                        {
+                            ui.label(value.to_string());
+                        }
+
+                        if let Some(position) = window.cursor_position() {
+                            let Ok(world_position) =
+                                q_camera.0.viewport_to_world_2d(q_camera.1, position)
+                            else {
+                                return;
+                            };
                             ui.label(format!(
                                 "Density at mouse pointer: {}",
-                                sim.density_at_point(world_position).0,
+                                sim.density_at_point(world_position).x,
                             ));
                             ui.label(format!("{} ms", debug_data.step_execution_time));
-                        });
-                    }
+                        }
+                    })
                 },
             );
         });
@@ -280,8 +293,8 @@ pub fn debug_info(
                 "Particles discarded in search: {}",
                 sim.positions.len() - (debug_info.neighbors + debug_info.discarded_neighbors)
             ));
-            ui.label(format!("Density: {}", debug_info.density.0));
-            ui.label(format!("Near density: {}", debug_info.density.1));
+            ui.label(format!("Density: {}", debug_info.density.x));
+            ui.label(format!("Near density: {}", debug_info.density.y));
         });
 }
 

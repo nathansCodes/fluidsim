@@ -41,7 +41,7 @@ pub struct DebugData {
 pub struct DebugInfo {
     pub neighbors: usize,
     pub discarded_neighbors: usize,
-    pub density: (f32, f32),
+    pub density: Vec2,
 }
 
 #[allow(clippy::type_complexity)]

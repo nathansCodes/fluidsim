@@ -1,284 +1,748 @@
-use std::time::Duration;
+use bevy::{
+    prelude::*,
+    render::{
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        gpu_readback::{Readback, ReadbackComplete},
+        render_asset::RenderAssets,
+        render_graph::{self, RenderGraph, RenderLabel},
+        render_resource::{
+            binding_types::*, BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries,
+            BufferUsages, CachedComputePipelineId, ComputePassDescriptor,
+            ComputePipelineDescriptor, IntoBinding, PipelineCache, PushConstantRange, ShaderStages,
+            UniformBuffer,
+        },
+        renderer::{RenderContext, RenderDevice, RenderQueue},
+        storage::{GpuShaderStorageBuffer, ShaderStorageBuffer},
+        Render, RenderApp, RenderSet,
+    },
+};
 
-use bevy::prelude::*;
-use bevy_simple_compute::prelude::*;
+use super::SimState;
 
-use super::Sim;
-
-mod pass {
-    use bevy::reflect::TypePath;
-    use bevy_simple_compute::prelude::{ComputeShader, ShaderRef};
-
-    #[derive(TypePath)]
-    pub(super) struct ComputeSpatialLookup;
-
-    impl ComputeShader for ComputeSpatialLookup {
-        fn shader() -> ShaderRef {
-            "shaders/compute_spatial_lookup.wgsl".into()
-        }
-
-        fn entry_point<'a>() -> &'a str {
-            "compute_spatial_lookup"
-        }
+// We need a plugin to organize all the systems and render node required for this example
+pub struct SimComputePlugin;
+impl Plugin for SimComputePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((
+            ExtractResourcePlugin::<super::Sim>::default(),
+            ExtractResourcePlugin::<GpuSim>::default(),
+        ))
+        .insert_resource(ClearColor(Color::BLACK))
+        .add_systems(
+            OnExit(SimState::Prepare),
+            setup.run_if(in_state(super::Device::GPU)),
+        )
+        .add_systems(
+            OnTransition {
+                exited: SimState::Running,
+                entered: SimState::Prepare,
+            },
+            cleanup,
+        )
+        .add_systems(
+            PostUpdate,
+            update.run_if(in_state(super::Device::GPU).and(resource_exists::<GpuSim>)),
+        );
     }
 
-    #[derive(TypePath)]
-    pub(super) struct SortSpatialLookup;
+    fn finish(&self, app: &mut App) {
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app.add_systems(
+            Render,
+            (
+                (|mut cmds: Commands| {
+                    cmds.remove_resource::<GpuBufferBindGroups>();
+                    cmds.remove_resource::<SimComputePipeline>();
+                })
+                .run_if(|gpu_sim: Option<Res<GpuSim>>| {
+                    gpu_sim.is_some_and(|gpu_sim| {
+                        gpu_sim.state == SimState::Prepare && gpu_sim.old_state != SimState::Prepare
+                    })
+                }),
+                (
+                    (|mut cmds: Commands| {
+                        cmds.init_resource::<SimComputePipeline>();
+                    })
+                    .run_if(not(resource_exists::<SimComputePipeline>)),
+                    prepare_bind_groups, // We don't need to recreate the bind group every frame
+                )
+                    .in_set(RenderSet::PrepareBindGroups)
+                    .run_if(not(resource_exists::<GpuBufferBindGroups>).and(
+                        |gpu_sim: Option<Res<GpuSim>>| {
+                            gpu_sim.is_some_and(|gpu_sim| gpu_sim.state != SimState::Prepare)
+                        },
+                    ))
+                    .chain(),
+            )
+                .in_set(RenderSet::PrepareBindGroups)
+                .chain(),
+        );
 
-    impl ComputeShader for SortSpatialLookup {
-        fn shader() -> ShaderRef {
-            "shaders/sort_spatial_lookup.wgsl".into()
-        }
-
-        fn entry_point<'a>() -> &'a str {
-            "sort_spatial_lookup"
-        }
-    }
-
-    #[derive(TypePath)]
-    pub(super) struct SetStartIndices;
-
-    impl ComputeShader for SetStartIndices {
-        fn shader() -> ShaderRef {
-            "shaders/set_start_indices.wgsl".into()
-        }
-
-        fn entry_point<'a>() -> &'a str {
-            "set_start_indices"
-        }
-    }
-
-    #[derive(TypePath)]
-    pub(super) struct PredictPositions;
-
-    impl ComputeShader for PredictPositions {
-        fn shader() -> ShaderRef {
-            "shaders/predict_positions.wgsl".into()
-        }
-
-        fn entry_point<'a>() -> &'a str {
-            "predict_positions"
-        }
-    }
-
-    #[derive(TypePath)]
-    pub(super) struct PrecalculateDensities;
-
-    impl ComputeShader for PrecalculateDensities {
-        fn shader() -> ShaderRef {
-            "shaders/precalculate_densities.wgsl".into()
-        }
-
-        fn entry_point<'a>() -> &'a str {
-            "precalculate_densities"
-        }
-    }
-
-    #[derive(TypePath)]
-    pub(super) struct ApplyViscosity;
-
-    impl ComputeShader for ApplyViscosity {
-        fn shader() -> ShaderRef {
-            "shaders/apply_viscosity.wgsl".into()
-        }
-
-        fn entry_point<'a>() -> &'a str {
-            "apply_viscosity"
-        }
-    }
-
-    #[derive(TypePath)]
-    pub(super) struct ApplyPressure;
-
-    impl ComputeShader for ApplyPressure {
-        fn shader() -> ShaderRef {
-            "shaders/apply_pressure.wgsl".into()
-        }
-
-        fn entry_point<'a>() -> &'a str {
-            "apply_pressure"
-        }
-    }
-
-    #[derive(TypePath)]
-    pub(super) struct ApplyVelocitiesAndCollide;
-
-    impl ComputeShader for ApplyVelocitiesAndCollide {
-        fn shader() -> ShaderRef {
-            "shaders/apply_velocity_and_collide.wgsl".into()
-        }
-
-        fn entry_point<'a>() -> &'a str {
-            "apply_velocity_and_collide"
-        }
+        // Add the compute node as a top level node to the render graph
+        // This means it will only execute once per frame
+        render_app
+            .world_mut()
+            .resource_mut::<RenderGraph>()
+            .add_node(SimNodeLabel, SimNode);
     }
 }
 
-pub struct SimComputeWorker;
+fn cleanup(mut commands: Commands, readback: Single<Entity, With<Readback>>) {
+    commands.entity(readback.into_inner()).despawn();
+}
 
-impl ComputeWorker for SimComputeWorker {
-    fn build(world: &mut World) -> AppComputeWorker<Self> {
-        world.resource_scope(|world, sim: Mut<Sim>| {
-            let buffer_size_1x32bit = (sim.positions.len() * size_of::<u32>()) as u64;
-            let buffer_size_2x32bit = buffer_size_1x32bit * 2;
-            let buffer_size_3x32bit = buffer_size_1x32bit * 3;
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub(super) struct GpuSim {
+    positions: Handle<ShaderStorageBuffer>,
+    predicted_positions: Handle<ShaderStorageBuffer>,
+    velocities: Handle<ShaderStorageBuffer>,
+    densities: Handle<ShaderStorageBuffer>,
+    spatial_lookup: Handle<ShaderStorageBuffer>,
+    start_indices: Handle<ShaderStorageBuffer>,
+    state: super::SimState,
+    old_state: super::SimState,
+    num_particles: u32,
+}
 
-            let mut worker_builder = AppComputeWorkerBuilder::new(world);
+fn setup(
+    mut commands: Commands,
+    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
+    sim: Res<super::Sim>,
+) {
+    let empty_data = vec![0u32; sim.positions.len() * 2];
 
-            let num_stages = sim.positions.len().next_power_of_two().ilog2();
+    let mut positions = ShaderStorageBuffer::from(sim.positions.clone());
+    positions.buffer_description.usage |= BufferUsages::COPY_SRC;
+    let positions = buffers.add(positions);
 
-            worker_builder
-                .add_staging("positions", &sim.positions)
-                .add_empty_staging("predicted_positions", buffer_size_2x32bit)
-                .add_staging("velocities", &sim.velocities)
-                .add_empty_staging("densities", buffer_size_2x32bit)
-                .add_empty_staging("spatial_lookup", buffer_size_3x32bit)
-                .add_empty_staging("start_indices", buffer_size_1x32bit)
-                .add_uniform("gravity", &sim.gravity)
-                .add_uniform("bounds_size", &sim.bounds_size)
-                .add_uniform("particle_radius", &sim.particle_radius)
-                .add_uniform("smoothing_radius", &sim.smoothing_radius)
-                .add_uniform("target_density", &sim.target_density)
-                .add_uniform("pressure_multiplier", &sim.pressure_multiplier)
-                .add_uniform("near_pressure_multiplier", &sim.near_pressure_multiplier)
-                .add_uniform("viscosity", &sim.viscosity)
-                .add_uniform("delta", &sim.delta)
-                .add_uniform("num_particles", &(sim.positions.len() as u32))
-                .add_staging("positions", &sim.positions)
-                .add_uniform("num_stages", &num_stages)
-                .add_rw_storage("stage_index", &0u32)
-                .add_rw_storage("step_index", &0u32);
+    let mut predicted_positions = ShaderStorageBuffer::from(empty_data.clone());
+    predicted_positions.buffer_description.usage |= BufferUsages::COPY_SRC;
+    let predicted_positions = buffers.add(predicted_positions);
 
-            worker_builder.add_pass::<pass::ComputeSpatialLookup>(
-                [sim.positions.len() as u32, 1, 1],
-                &[
-                    "positions",
-                    "spatial_lookup",
-                    "start_indices",
-                    "smoothing_radius",
-                    "num_particles",
-                ],
-            );
+    let mut velocities = ShaderStorageBuffer::from(empty_data.clone());
+    velocities.buffer_description.usage |= BufferUsages::COPY_SRC;
+    let velocities = buffers.add(velocities);
 
-            for stage_index in 0..num_stages {
-                for _ in 0..stage_index + 1 {
-                    worker_builder.add_pass::<pass::SortSpatialLookup>(
-                        [sim.positions.len().next_power_of_two() as u32 / 2, 1, 1],
-                        &[
-                            "spatial_lookup",
-                            "num_particles",
-                            "num_stages",
-                            "stage_index",
-                            "step_index",
-                        ],
-                    );
-                }
-            }
+    let mut densities = ShaderStorageBuffer::from(empty_data);
+    densities.buffer_description.usage |= BufferUsages::COPY_SRC;
+    let densities = buffers.add(densities);
 
-            worker_builder
-                .add_pass::<pass::SetStartIndices>(
-                    [sim.positions.len() as u32, 1, 1],
-                    &["spatial_lookup", "start_indices", "num_particles"],
-                )
-                .add_pass::<pass::PredictPositions>(
-                    [sim.positions.len() as u32, 1, 1],
-                    &[
-                        "predicted_positions",
-                        "positions",
-                        "velocities",
-                        "gravity",
-                        "delta",
-                    ],
-                )
-                .add_pass::<pass::PrecalculateDensities>(
-                    [sim.positions.len() as u32, 1, 1],
-                    &[
-                        "densities",
-                        "predicted_positions",
-                        "spatial_lookup",
-                        "start_indices",
-                        "smoothing_radius",
-                        "num_particles",
-                    ],
-                )
-                .add_pass::<pass::ApplyViscosity>(
-                    [sim.positions.len() as u32, 1, 1],
-                    &[
-                        "velocities",
-                        "predicted_positions",
-                        "spatial_lookup",
-                        "start_indices",
-                        "smoothing_radius",
-                        "viscosity",
-                        "num_particles",
-                        "delta",
-                    ],
-                )
-                .add_pass::<pass::ApplyPressure>(
-                    [sim.positions.len() as u32, 1, 1],
-                    &[
-                        "predicted_positions",
-                        "velocities",
-                        "densities",
-                        "spatial_lookup",
-                        "start_indices",
-                        "smoothing_radius",
-                        "target_density",
-                        "pressure_multiplier",
-                        "near_pressure_multiplier",
-                        "delta",
-                        "num_particles",
-                    ],
-                )
-                .add_pass::<pass::ApplyVelocitiesAndCollide>(
-                    [sim.positions.len() as u32, 1, 1],
-                    &[
-                        "positions",
-                        "velocities",
-                        "bounds_size",
-                        "particle_radius",
-                        "delta",
-                    ],
-                )
-                .one_shot()
-                .build()
-        })
+    let mut spatial_lookup = ShaderStorageBuffer::from(vec![UVec3::ZERO; sim.positions.len()]);
+    spatial_lookup.buffer_description.usage |= BufferUsages::COPY_SRC;
+    let spatial_lookup = buffers.add(spatial_lookup);
+
+    let mut start_indices = ShaderStorageBuffer::from(vec![0u32; sim.positions.len()]);
+    start_indices.buffer_description.usage |= BufferUsages::COPY_SRC;
+    let start_indices = buffers.add(start_indices);
+
+    commands
+        .spawn(Readback::buffer(positions.clone()))
+        .observe(on_readback_positions);
+
+    commands.insert_resource(GpuSim {
+        positions,
+        predicted_positions,
+        velocities,
+        densities,
+        spatial_lookup,
+        start_indices,
+        state: super::SimState::Running,
+        old_state: super::SimState::Prepare,
+        num_particles: sim.positions.len() as u32,
+    });
+}
+
+fn on_readback_positions(
+    trigger: Trigger<ReadbackComplete>,
+    mut sim: ResMut<super::Sim>,
+    state: Res<State<super::SimState>>,
+) {
+    if *state.get() == super::SimState::Paused {
+        return;
     }
+
+    let data: Vec<Vec2> = trigger.event().to_shader_type();
+
+    sim.positions = data;
 }
 
-pub fn start(world: &mut World) {
-    world.remove_resource::<AppComputeWorker<SimComputeWorker>>();
-    let worker = SimComputeWorker::build(world);
-    world.insert_resource(worker);
+#[derive(Resource)]
+struct GpuBufferBindGroups {
+    compute_spatial_lookup: BindGroup,
+    sort_spatial_lookup: BindGroup,
+    set_start_indices: BindGroup,
+    predict_positions: BindGroup,
+    precalculate_densities: BindGroup,
+    apply_viscosity: BindGroup,
+    apply_pressure: BindGroup,
+    apply_velocity_and_collide: BindGroup,
 }
 
-pub fn simulate(mut compute_worker: ResMut<AppComputeWorker<SimComputeWorker>>, sim: Res<Sim>) {
-    compute_worker.write_slice("positions", &sim.positions);
-    compute_worker.write_slice("velocities", &sim.velocities);
-    compute_worker.write("gravity", &sim.gravity);
-    compute_worker.write("bounds_size", &sim.bounds_size);
-    compute_worker.write("particle_radius", &sim.particle_radius);
-    compute_worker.write("smoothing_radius", &sim.smoothing_radius);
-    compute_worker.write("bounds_size", &sim.bounds_size);
-    compute_worker.write("target_density", &sim.target_density);
-    compute_worker.write("pressure_multiplier", &sim.pressure_multiplier);
-    compute_worker.write("near_pressure_multiplier", &sim.near_pressure_multiplier);
-    compute_worker.write("viscosity", &sim.viscosity);
-    compute_worker.write("delta", &sim.delta);
-
-    compute_worker.execute();
+fn update(mut gpu_sim: ResMut<GpuSim>, state: Res<State<super::SimState>>) {
+    gpu_sim.old_state = gpu_sim.state.clone();
+    gpu_sim.state = state.clone();
 }
 
-pub fn read_data(compute_worker: Res<AppComputeWorker<SimComputeWorker>>, mut sim: ResMut<Sim>) {
-    if !compute_worker.ready() {
+fn prepare_bind_groups(
+    mut commands: Commands,
+    pipeline: Res<SimComputePipeline>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    sim_buffers: Option<Res<GpuSim>>,
+    gpu_buffers: Res<RenderAssets<GpuShaderStorageBuffer>>,
+    sim: Res<super::Sim>,
+) {
+    let Some(sim_buffers) = sim_buffers else {
         return;
     };
 
-    let result: Vec<Vec2> = compute_worker.read_vec("positions");
+    let positions = gpu_buffers.get(&sim_buffers.positions).unwrap();
+    let predicted_positions = gpu_buffers.get(&sim_buffers.predicted_positions).unwrap();
+    let velocities = gpu_buffers.get(&sim_buffers.velocities).unwrap();
+    let densities = gpu_buffers.get(&sim_buffers.densities).unwrap();
+    let spatial_lookup = gpu_buffers.get(&sim_buffers.spatial_lookup).unwrap();
+    let start_indices = gpu_buffers.get(&sim_buffers.start_indices).unwrap();
 
-    if sim.positions.len() != result.len() {
-        return;
+    let mut num_particles = UniformBuffer::from(sim.positions.len() as u32);
+    let mut gravity = UniformBuffer::from(sim.gravity);
+    let mut bounds_size = UniformBuffer::from(sim.bounds_size);
+    let mut particle_radius = UniformBuffer::from(sim.particle_radius);
+    let mut smoothing_radius = UniformBuffer::from(sim.smoothing_radius);
+    let mut target_density = UniformBuffer::from(sim.target_density);
+    let mut pressure_multiplier = UniformBuffer::from(sim.pressure_multiplier);
+    let mut near_pressure_multiplier = UniformBuffer::from(sim.near_pressure_multiplier);
+    let mut viscosity = UniformBuffer::from(sim.viscosity);
+    let mut delta = UniformBuffer::from(1.0 / sim.delta);
+
+    num_particles.write_buffer(&render_device, &render_queue);
+    gravity.write_buffer(&render_device, &render_queue);
+    bounds_size.write_buffer(&render_device, &render_queue);
+    particle_radius.write_buffer(&render_device, &render_queue);
+    smoothing_radius.write_buffer(&render_device, &render_queue);
+    target_density.write_buffer(&render_device, &render_queue);
+    pressure_multiplier.write_buffer(&render_device, &render_queue);
+    near_pressure_multiplier.write_buffer(&render_device, &render_queue);
+    viscosity.write_buffer(&render_device, &render_queue);
+    delta.write_buffer(&render_device, &render_queue);
+
+    commands.insert_resource(GpuBufferBindGroups {
+        compute_spatial_lookup: render_device.create_bind_group(
+            "compute_spatial_lookup",
+            &pipeline.compute_spatial_lookup.layout,
+            &BindGroupEntries::sequential((
+                predicted_positions.buffer.as_entire_buffer_binding(),
+                spatial_lookup.buffer.as_entire_buffer_binding(),
+                start_indices.buffer.as_entire_buffer_binding(),
+                smoothing_radius.into_binding(),
+                num_particles.into_binding(),
+            )),
+        ),
+        sort_spatial_lookup: render_device.create_bind_group(
+            "sort_spatial_lookup",
+            &pipeline.sort_spatial_lookup.layout,
+            &BindGroupEntries::sequential((
+                spatial_lookup.buffer.as_entire_buffer_binding(),
+                num_particles.into_binding(),
+            )),
+        ),
+        set_start_indices: render_device.create_bind_group(
+            "set_start_indices",
+            &pipeline.set_start_indices.layout,
+            &BindGroupEntries::sequential((
+                spatial_lookup.buffer.as_entire_buffer_binding(),
+                start_indices.buffer.as_entire_buffer_binding(),
+                num_particles.into_binding(),
+            )),
+        ),
+        predict_positions: render_device.create_bind_group(
+            "predict_positions",
+            &pipeline.predict_positions.layout,
+            &BindGroupEntries::sequential((
+                positions.buffer.as_entire_buffer_binding(),
+                predicted_positions.buffer.as_entire_buffer_binding(),
+                velocities.buffer.as_entire_buffer_binding(),
+                gravity.into_binding(),
+                delta.into_binding(),
+            )),
+        ),
+        precalculate_densities: render_device.create_bind_group(
+            "precalculate_densities",
+            &pipeline.precalculate_densities.layout,
+            &BindGroupEntries::sequential((
+                densities.buffer.as_entire_buffer_binding(),
+                predicted_positions.buffer.as_entire_buffer_binding(),
+                spatial_lookup.buffer.as_entire_buffer_binding(),
+                start_indices.buffer.as_entire_buffer_binding(),
+                smoothing_radius.into_binding(),
+                num_particles.into_binding(),
+            )),
+        ),
+        apply_viscosity: render_device.create_bind_group(
+            "viscosity",
+            &pipeline.apply_viscosity.layout,
+            &BindGroupEntries::sequential((
+                velocities.buffer.as_entire_buffer_binding(),
+                predicted_positions.buffer.as_entire_buffer_binding(),
+                spatial_lookup.buffer.as_entire_buffer_binding(),
+                start_indices.buffer.as_entire_buffer_binding(),
+                num_particles.into_binding(),
+                smoothing_radius.into_binding(),
+                viscosity.into_binding(),
+                delta.into_binding(),
+            )),
+        ),
+        apply_pressure: render_device.create_bind_group(
+            "apply_pressure",
+            &pipeline.apply_pressure.layout,
+            &BindGroupEntries::sequential((
+                predicted_positions.buffer.as_entire_buffer_binding(),
+                velocities.buffer.as_entire_buffer_binding(),
+                densities.buffer.as_entire_buffer_binding(),
+                spatial_lookup.buffer.as_entire_buffer_binding(),
+                start_indices.buffer.as_entire_buffer_binding(),
+                num_particles.into_binding(),
+                smoothing_radius.into_binding(),
+                target_density.into_binding(),
+                pressure_multiplier.into_binding(),
+                near_pressure_multiplier.into_binding(),
+                delta.into_binding(),
+            )),
+        ),
+        apply_velocity_and_collide: render_device.create_bind_group(
+            "apply_velocity_and_collide",
+            &pipeline.apply_velocity_and_collide.layout,
+            &BindGroupEntries::sequential((
+                gpu_buffers
+                    .get(&sim_buffers.positions)
+                    .unwrap()
+                    .buffer
+                    .as_entire_buffer_binding(),
+                gpu_buffers
+                    .get(&sim_buffers.velocities)
+                    .unwrap()
+                    .buffer
+                    .as_entire_buffer_binding(),
+                bounds_size.into_binding(),
+                particle_radius.into_binding(),
+                delta.into_binding(),
+            )),
+        ),
+    });
+    commands.init_resource::<SimComputePipeline>();
+}
+
+// aka a compute pass
+struct SimStep {
+    pipeline: CachedComputePipelineId,
+    layout: BindGroupLayout,
+}
+
+#[derive(Resource)]
+struct SimComputePipeline {
+    compute_spatial_lookup: SimStep,
+    sort_spatial_lookup: SimStep,
+    set_start_indices: SimStep,
+    predict_positions: SimStep,
+    precalculate_densities: SimStep,
+    apply_viscosity: SimStep,
+    apply_pressure: SimStep,
+    apply_velocity_and_collide: SimStep,
+}
+
+impl FromWorld for SimComputePipeline {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+
+        let pipeline_cache = world.resource::<PipelineCache>();
+
+        let compute_spatial_lookup_layout = render_device.create_bind_group_layout(
+            Some("compute_spatial_lookup"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<UVec3>>(false),
+                    storage_buffer::<Vec<u32>>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<u32>(false),
+                ),
+            ),
+        );
+        let sort_spatial_lookup_layout = render_device.create_bind_group_layout(
+            Some("sort_spatial_lookup"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    storage_buffer::<Vec<UVec3>>(false),
+                    uniform_buffer::<u32>(false),
+                ),
+            ),
+        );
+        let set_start_indices_layout = render_device.create_bind_group_layout(
+            Some("set_start_indices"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    storage_buffer::<Vec<UVec3>>(false),
+                    storage_buffer::<Vec<u32>>(false),
+                    uniform_buffer::<u32>(false),
+                ),
+            ),
+        );
+        let predict_positions_layout = render_device.create_bind_group_layout(
+            Some("predict_positions"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<Vec2>>(false),
+                    uniform_buffer::<Vec2>(false),
+                    uniform_buffer::<f32>(false),
+                ),
+            ),
+        );
+        let precalculate_densities_layout = render_device.create_bind_group_layout(
+            Some("precalculate_densities"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<UVec3>>(false),
+                    storage_buffer::<Vec<u32>>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<u32>(false),
+                ),
+            ),
+        );
+        let apply_viscosity_layout = render_device.create_bind_group_layout(
+            Some("apply_viscosity"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<UVec3>>(false),
+                    storage_buffer::<Vec<u32>>(false),
+                    uniform_buffer::<u32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                ),
+            ),
+        );
+        let apply_pressure_layout = render_device.create_bind_group_layout(
+            Some("apply_pressure"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<UVec3>>(false),
+                    storage_buffer::<Vec<u32>>(false),
+                    uniform_buffer::<u32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                ),
+            ),
+        );
+        let apply_velocity_and_collide_layout = render_device.create_bind_group_layout(
+            Some("apply_velocity_and_collide"),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    storage_buffer::<Vec<Vec2>>(false),
+                    storage_buffer::<Vec<Vec2>>(false),
+                    uniform_buffer::<Vec2>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                ),
+            ),
+        );
+
+        SimComputePipeline {
+            compute_spatial_lookup: SimStep {
+                pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some("compute_spatial_lookup".into()),
+                    layout: vec![compute_spatial_lookup_layout.clone()],
+                    push_constant_ranges: Vec::new(),
+                    shader: world.load_asset("shaders/compute_spatial_lookup.wgsl"),
+                    shader_defs: Vec::new(),
+                    entry_point: "compute_spatial_lookup".into(),
+                    zero_initialize_workgroup_memory: false,
+                }),
+                layout: compute_spatial_lookup_layout,
+            },
+            sort_spatial_lookup: SimStep {
+                pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some("sort_spatial_lookup".into()),
+                    layout: vec![sort_spatial_lookup_layout.clone()],
+                    push_constant_ranges: vec![PushConstantRange {
+                        stages: ShaderStages::COMPUTE,
+                        range: (0..12),
+                    }],
+                    shader: world.load_asset("shaders/sort_spatial_lookup.wgsl"),
+                    shader_defs: Vec::new(),
+                    entry_point: "sort_spatial_lookup".into(),
+                    zero_initialize_workgroup_memory: false,
+                }),
+                layout: sort_spatial_lookup_layout,
+            },
+            set_start_indices: SimStep {
+                pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some("set_start_indices".into()),
+                    layout: vec![set_start_indices_layout.clone()],
+                    push_constant_ranges: Vec::new(),
+                    shader: world.load_asset("shaders/set_start_indices.wgsl"),
+                    shader_defs: Vec::new(),
+                    entry_point: "set_start_indices".into(),
+                    zero_initialize_workgroup_memory: false,
+                }),
+                layout: set_start_indices_layout,
+            },
+            predict_positions: SimStep {
+                pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some("predict_positions".into()),
+                    layout: vec![predict_positions_layout.clone()],
+                    push_constant_ranges: Vec::new(),
+                    shader: world.load_asset("shaders/predict_positions.wgsl"),
+                    shader_defs: Vec::new(),
+                    entry_point: "predict_positions".into(),
+                    zero_initialize_workgroup_memory: false,
+                }),
+                layout: predict_positions_layout,
+            },
+            precalculate_densities: SimStep {
+                pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some("precalculate_densities".into()),
+                    layout: vec![precalculate_densities_layout.clone()],
+                    push_constant_ranges: Vec::new(),
+                    shader: world.load_asset("shaders/precalculate_densities.wgsl"),
+                    shader_defs: Vec::new(),
+                    entry_point: "precalculate_densities".into(),
+                    zero_initialize_workgroup_memory: false,
+                }),
+                layout: precalculate_densities_layout,
+            },
+            apply_viscosity: SimStep {
+                pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some("apply_viscosity".into()),
+                    layout: vec![apply_viscosity_layout.clone()],
+                    push_constant_ranges: Vec::new(),
+                    shader: world.load_asset("shaders/apply_viscosity.wgsl"),
+                    shader_defs: Vec::new(),
+                    entry_point: "apply_viscosity".into(),
+                    zero_initialize_workgroup_memory: false,
+                }),
+                layout: apply_viscosity_layout,
+            },
+            apply_pressure: SimStep {
+                pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some("apply_pressure".into()),
+                    layout: vec![apply_pressure_layout.clone()],
+                    push_constant_ranges: Vec::new(),
+                    shader: world.load_asset("shaders/apply_pressure.wgsl"),
+                    shader_defs: Vec::new(),
+                    entry_point: "apply_pressure".into(),
+                    zero_initialize_workgroup_memory: false,
+                }),
+                layout: apply_pressure_layout,
+            },
+            apply_velocity_and_collide: SimStep {
+                pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                    label: Some("apply_velocity_and_collide".into()),
+                    layout: vec![apply_velocity_and_collide_layout.clone()],
+                    push_constant_ranges: Vec::new(),
+                    shader: world.load_asset("shaders/apply_velocity_and_collide.wgsl"),
+                    shader_defs: Vec::new(),
+                    entry_point: "apply_velocity_and_collide".into(),
+                    zero_initialize_workgroup_memory: false,
+                }),
+                layout: apply_velocity_and_collide_layout,
+            },
+        }
     }
+}
 
-    sim.positions.copy_from_slice(result.as_slice());
+/// Label to identify the node in the render graph
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct SimNodeLabel;
+
+/// The node that will execute the compute shader
+#[derive(Default)]
+struct SimNode;
+
+impl render_graph::Node for SimNode {
+    fn run(
+        &self,
+        _graph: &mut render_graph::RenderGraphContext,
+        render_context: &mut RenderContext,
+        world: &World,
+    ) -> Result<(), render_graph::NodeRunError> {
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let pipeline_maybe = world.get_resource::<SimComputePipeline>();
+        let bind_groups_maybe = world.get_resource::<GpuBufferBindGroups>();
+        let gpu_sim_maybe = world.get_resource::<GpuSim>();
+
+        let Some(pipeline) = pipeline_maybe else {
+            return Ok(());
+        };
+
+        let Some(gpu_sim) = gpu_sim_maybe else {
+            return Ok(());
+        };
+
+        if gpu_sim.state != super::SimState::Running && gpu_sim.state != super::SimState::Step {
+            return Ok(());
+        }
+
+        let Some(bind_groups) = bind_groups_maybe else {
+            return Ok(());
+        };
+
+        if let Some(pipeline) =
+            pipeline_cache.get_compute_pipeline(pipeline.predict_positions.pipeline)
+        {
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        ..default()
+                    });
+
+            pass.set_bind_group(0, &bind_groups.predict_positions, &[]);
+            pass.set_pipeline(pipeline);
+            pass.dispatch_workgroups((gpu_sim.num_particles as f32 / 64.0).ceil() as u32, 1, 1);
+        }
+        if let Some(pipeline) =
+            pipeline_cache.get_compute_pipeline(pipeline.compute_spatial_lookup.pipeline)
+        {
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        ..default()
+                    });
+
+            pass.set_bind_group(0, &bind_groups.compute_spatial_lookup, &[]);
+            pass.set_pipeline(pipeline);
+            pass.dispatch_workgroups((gpu_sim.num_particles as f32 / 64.0).ceil() as u32, 1, 1);
+        }
+        if let Some(pipeline) =
+            pipeline_cache.get_compute_pipeline(pipeline.sort_spatial_lookup.pipeline)
+        {
+            let num_stages = gpu_sim.num_particles.next_power_of_two().ilog2();
+
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        ..default()
+                    });
+
+            pass.set_bind_group(0, &bind_groups.sort_spatial_lookup, &[]);
+            pass.set_pipeline(pipeline);
+
+            for stage_index in 0..num_stages {
+                for step_index in 0..stage_index + 1 {
+                    let group_width: u32 = 1 << (stage_index - step_index);
+                    let group_height: u32 = 2 * group_width - 1;
+
+                    pass.set_push_constants(0, &group_width.to_ne_bytes());
+                    pass.set_push_constants(4, &group_height.to_ne_bytes());
+                    pass.set_push_constants(8, &step_index.to_ne_bytes());
+
+                    pass.dispatch_workgroups(
+                        (gpu_sim.num_particles.next_power_of_two() as f32 / 256.0).ceil() as u32,
+                        1,
+                        1,
+                    );
+                }
+            }
+        }
+        if let Some(pipeline) =
+            pipeline_cache.get_compute_pipeline(pipeline.set_start_indices.pipeline)
+        {
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        ..default()
+                    });
+
+            pass.set_bind_group(0, &bind_groups.set_start_indices, &[]);
+            pass.set_pipeline(pipeline);
+            pass.dispatch_workgroups((gpu_sim.num_particles as f32 / 64.0).ceil() as u32, 1, 1);
+        }
+        if let Some(pipeline) =
+            pipeline_cache.get_compute_pipeline(pipeline.precalculate_densities.pipeline)
+        {
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        ..default()
+                    });
+
+            pass.set_bind_group(0, &bind_groups.precalculate_densities, &[]);
+            pass.set_pipeline(pipeline);
+            pass.dispatch_workgroups((gpu_sim.num_particles as f32 / 64.0).ceil() as u32, 1, 1);
+        }
+        if let Some(pipeline) =
+            pipeline_cache.get_compute_pipeline(pipeline.apply_viscosity.pipeline)
+        {
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        ..default()
+                    });
+
+            pass.set_bind_group(0, &bind_groups.apply_viscosity, &[]);
+            pass.set_pipeline(pipeline);
+            pass.dispatch_workgroups((gpu_sim.num_particles as f32 / 64.0).ceil() as u32, 1, 1);
+        }
+        if let Some(pipeline) =
+            pipeline_cache.get_compute_pipeline(pipeline.apply_pressure.pipeline)
+        {
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        ..default()
+                    });
+
+            pass.set_bind_group(0, &bind_groups.apply_pressure, &[]);
+            pass.set_pipeline(pipeline);
+            pass.dispatch_workgroups((gpu_sim.num_particles as f32 / 64.0).ceil() as u32, 1, 1);
+        }
+        if let Some(pipeline) =
+            pipeline_cache.get_compute_pipeline(pipeline.apply_velocity_and_collide.pipeline)
+        {
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        ..default()
+                    });
+
+            pass.set_bind_group(0, &bind_groups.apply_velocity_and_collide, &[]);
+            pass.set_pipeline(pipeline);
+            pass.dispatch_workgroups((gpu_sim.num_particles as f32 / 64.0).ceil() as u32, 1, 1);
+        }
+        Ok(())
+    }
 }
