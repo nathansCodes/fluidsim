@@ -37,7 +37,7 @@ impl Plugin for SimComputePlugin {
                 exited: SimState::Running,
                 entered: SimState::Prepare,
             },
-            cleanup,
+            cleanup.run_if(in_state(super::Device::GPU)),
         )
         .add_systems(
             PostUpdate,
