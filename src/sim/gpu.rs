@@ -21,6 +21,16 @@ use bevy::{
 
 use super::SimState;
 
+fn sim_just_stopped(gpu_sim: Option<Res<GpuSim>>) -> bool {
+    gpu_sim.is_some_and(|gpu_sim| {
+        gpu_sim.state == SimState::Prepare && gpu_sim.old_state != SimState::Prepare
+    })
+}
+
+fn sim_running_or_paused(gpu_sim: Option<Res<GpuSim>>) -> bool {
+    gpu_sim.is_some_and(|gpu_sim| gpu_sim.state != SimState::Prepare)
+}
+
 // We need a plugin to organize all the systems and render node required for this example
 pub struct SimComputePlugin;
 impl Plugin for SimComputePlugin {
@@ -46,6 +56,7 @@ impl Plugin for SimComputePlugin {
 
     fn finish(&self, app: &mut App) {
         let render_app = app.sub_app_mut(RenderApp);
+
         render_app.add_systems(
             Render,
             (
@@ -53,24 +64,16 @@ impl Plugin for SimComputePlugin {
                     cmds.remove_resource::<GpuBufferBindGroups>();
                     cmds.remove_resource::<SimComputePipeline>();
                 })
-                .run_if(|gpu_sim: Option<Res<GpuSim>>| {
-                    gpu_sim.is_some_and(|gpu_sim| {
-                        gpu_sim.state == SimState::Prepare && gpu_sim.old_state != SimState::Prepare
-                    })
-                }),
+                .run_if(sim_just_stopped),
                 (
                     (|mut cmds: Commands| {
                         cmds.init_resource::<SimComputePipeline>();
                     })
                     .run_if(not(resource_exists::<SimComputePipeline>)),
-                    prepare_bind_groups, // We don't need to recreate the bind group every frame
+                    prepare_bind_groups,
                 )
                     .in_set(RenderSet::PrepareBindGroups)
-                    .run_if(not(resource_exists::<GpuBufferBindGroups>).and(
-                        |gpu_sim: Option<Res<GpuSim>>| {
-                            gpu_sim.is_some_and(|gpu_sim| gpu_sim.state != SimState::Prepare)
-                        },
-                    ))
+                    .run_if(not(resource_exists::<GpuBufferBindGroups>).and(sim_running_or_paused))
                     .chain(),
             )
                 .in_set(RenderSet::PrepareBindGroups)
