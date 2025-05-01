@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use bevy::{
     prelude::*,
     render::{
@@ -99,6 +101,15 @@ pub(super) struct GpuSim {
     densities: Handle<ShaderStorageBuffer>,
     spatial_lookup: Handle<ShaderStorageBuffer>,
     start_indices: Handle<ShaderStorageBuffer>,
+    gravity: Arc<Mutex<UniformBuffer<Vec2>>>,
+    bounds_size: Arc<Mutex<UniformBuffer<Vec2>>>,
+    particle_radius: Arc<Mutex<UniformBuffer<f32>>>,
+    smoothing_radius: Arc<Mutex<UniformBuffer<f32>>>,
+    target_density: Arc<Mutex<UniformBuffer<f32>>>,
+    pressure_multiplier: Arc<Mutex<UniformBuffer<f32>>>,
+    near_pressure_multiplier: Arc<Mutex<UniformBuffer<f32>>>,
+    viscosity: Arc<Mutex<UniformBuffer<f32>>>,
+    delta: Arc<Mutex<UniformBuffer<f32>>>,
     state: super::SimState,
     old_state: super::SimState,
     num_particles: u32,
@@ -146,6 +157,17 @@ fn setup(
         densities,
         spatial_lookup,
         start_indices,
+        gravity: Arc::new(Mutex::new(UniformBuffer::from(sim.gravity))),
+        bounds_size: Arc::new(Mutex::new(UniformBuffer::from(sim.bounds_size))),
+        particle_radius: Arc::new(Mutex::new(UniformBuffer::from(sim.particle_radius))),
+        smoothing_radius: Arc::new(Mutex::new(UniformBuffer::from(sim.smoothing_radius))),
+        target_density: Arc::new(Mutex::new(UniformBuffer::from(sim.target_density))),
+        pressure_multiplier: Arc::new(Mutex::new(UniformBuffer::from(sim.pressure_multiplier))),
+        near_pressure_multiplier: Arc::new(Mutex::new(UniformBuffer::from(
+            sim.near_pressure_multiplier,
+        ))),
+        viscosity: Arc::new(Mutex::new(UniformBuffer::from(sim.viscosity))),
+        delta: Arc::new(Mutex::new(UniformBuffer::from(1.0 / sim.delta))),
         state: super::SimState::Running,
         old_state: super::SimState::Prepare,
         num_particles: sim.positions.len() as u32,
@@ -178,9 +200,45 @@ struct GpuBufferBindGroups {
     apply_velocity_and_collide: BindGroup,
 }
 
-fn update(mut gpu_sim: ResMut<GpuSim>, state: Res<State<super::SimState>>) {
+fn update(
+    mut gpu_sim: ResMut<GpuSim>,
+    state: Res<State<super::SimState>>,
+    sim: Res<super::Sim>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
     gpu_sim.old_state = gpu_sim.state.clone();
     gpu_sim.state = state.clone();
+
+    let mut gravity = gpu_sim.gravity.lock().unwrap();
+    let mut bounds_size = gpu_sim.bounds_size.lock().unwrap();
+    let mut particle_radius = gpu_sim.particle_radius.lock().unwrap();
+    let mut smoothing_radius = gpu_sim.smoothing_radius.lock().unwrap();
+    let mut target_density = gpu_sim.target_density.lock().unwrap();
+    let mut pressure_multiplier = gpu_sim.pressure_multiplier.lock().unwrap();
+    let mut near_pressure_multiplier = gpu_sim.near_pressure_multiplier.lock().unwrap();
+    let mut viscosity = gpu_sim.viscosity.lock().unwrap();
+    let mut delta = gpu_sim.delta.lock().unwrap();
+
+    gravity.set(sim.gravity);
+    bounds_size.set(sim.bounds_size);
+    particle_radius.set(sim.particle_radius);
+    smoothing_radius.set(sim.smoothing_radius);
+    target_density.set(sim.target_density);
+    pressure_multiplier.set(sim.pressure_multiplier);
+    near_pressure_multiplier.set(sim.near_pressure_multiplier);
+    viscosity.set(sim.viscosity);
+    delta.set(1.0 / sim.delta);
+
+    gravity.write_buffer(&render_device, &render_queue);
+    bounds_size.write_buffer(&render_device, &render_queue);
+    particle_radius.write_buffer(&render_device, &render_queue);
+    smoothing_radius.write_buffer(&render_device, &render_queue);
+    target_density.write_buffer(&render_device, &render_queue);
+    pressure_multiplier.write_buffer(&render_device, &render_queue);
+    near_pressure_multiplier.write_buffer(&render_device, &render_queue);
+    viscosity.write_buffer(&render_device, &render_queue);
+    delta.write_buffer(&render_device, &render_queue);
 }
 
 fn prepare_bind_groups(
@@ -204,15 +262,25 @@ fn prepare_bind_groups(
     let start_indices = gpu_buffers.get(&sim_buffers.start_indices).unwrap();
 
     let mut num_particles = UniformBuffer::from(sim.positions.len() as u32);
-    let mut gravity = UniformBuffer::from(sim.gravity);
-    let mut bounds_size = UniformBuffer::from(sim.bounds_size);
-    let mut particle_radius = UniformBuffer::from(sim.particle_radius);
-    let mut smoothing_radius = UniformBuffer::from(sim.smoothing_radius);
-    let mut target_density = UniformBuffer::from(sim.target_density);
-    let mut pressure_multiplier = UniformBuffer::from(sim.pressure_multiplier);
-    let mut near_pressure_multiplier = UniformBuffer::from(sim.near_pressure_multiplier);
-    let mut viscosity = UniformBuffer::from(sim.viscosity);
-    let mut delta = UniformBuffer::from(1.0 / sim.delta);
+    let mut gravity = sim_buffers.gravity.lock().unwrap();
+    let mut bounds_size = sim_buffers.bounds_size.lock().unwrap();
+    let mut particle_radius = sim_buffers.particle_radius.lock().unwrap();
+    let mut smoothing_radius = sim_buffers.smoothing_radius.lock().unwrap();
+    let mut target_density = sim_buffers.target_density.lock().unwrap();
+    let mut pressure_multiplier = sim_buffers.pressure_multiplier.lock().unwrap();
+    let mut near_pressure_multiplier = sim_buffers.near_pressure_multiplier.lock().unwrap();
+    let mut viscosity = sim_buffers.viscosity.lock().unwrap();
+    let mut delta = sim_buffers.delta.lock().unwrap();
+
+    gravity.set(sim.gravity);
+    bounds_size.set(sim.bounds_size);
+    particle_radius.set(sim.particle_radius);
+    smoothing_radius.set(sim.smoothing_radius);
+    target_density.set(sim.target_density);
+    pressure_multiplier.set(sim.pressure_multiplier);
+    near_pressure_multiplier.set(sim.near_pressure_multiplier);
+    viscosity.set(sim.viscosity);
+    delta.set(1.0 / sim.delta);
 
     num_particles.write_buffer(&render_device, &render_queue);
     gravity.write_buffer(&render_device, &render_queue);

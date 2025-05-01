@@ -10,10 +10,8 @@ use bevy::{
     prelude::*,
     render::extract_resource::ExtractResource,
 };
-use gpu::GpuSim;
 
 use crate::{
-    controls::ControlsPlugin,
     debug::{debug_overlay, DebugData, DebugOverlay, ParticleColoring},
     ui,
 };
