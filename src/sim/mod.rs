@@ -8,7 +8,6 @@ use bevy::{
     diagnostic::FrameTimeDiagnosticsPlugin,
     math::FloatPow,
     prelude::*,
-    render::extract_resource::ExtractResource,
 };
 
 use crate::{
@@ -194,7 +193,7 @@ pub const CELL_OFFSETS: [Vec2; 9] = [
     Vec2::new(1.0, 1.0),
 ];
 
-#[derive(Resource, ExtractResource, Clone)]
+#[derive(Resource, Clone)]
 pub struct Sim {
     pub positions: Vec<Vec2>,
     pub predicted_positions: Vec<Vec2>,

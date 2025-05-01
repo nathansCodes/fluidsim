@@ -25,26 +25,23 @@ use super::SimState;
 pub struct SimComputePlugin;
 impl Plugin for SimComputePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            ExtractResourcePlugin::<super::Sim>::default(),
-            ExtractResourcePlugin::<GpuSim>::default(),
-        ))
-        .insert_resource(ClearColor(Color::BLACK))
-        .add_systems(
-            OnExit(SimState::Prepare),
-            setup.run_if(in_state(super::Device::GPU)),
-        )
-        .add_systems(
-            OnTransition {
-                exited: SimState::Running,
-                entered: SimState::Prepare,
-            },
-            cleanup.run_if(in_state(super::Device::GPU)),
-        )
-        .add_systems(
-            PostUpdate,
-            update.run_if(in_state(super::Device::GPU).and(resource_exists::<GpuSim>)),
-        );
+        app.add_plugins(ExtractResourcePlugin::<GpuSim>::default())
+            .insert_resource(ClearColor(Color::BLACK))
+            .add_systems(
+                OnExit(SimState::Prepare),
+                setup.run_if(in_state(super::Device::GPU)),
+            )
+            .add_systems(
+                OnTransition {
+                    exited: SimState::Running,
+                    entered: SimState::Prepare,
+                },
+                cleanup.run_if(in_state(super::Device::GPU)),
+            )
+            .add_systems(
+                PostUpdate,
+                update.run_if(in_state(super::Device::GPU).and(resource_exists::<GpuSim>)),
+            );
     }
 
     fn finish(&self, app: &mut App) {
@@ -246,41 +243,30 @@ fn prepare_bind_groups(
     pipeline: Res<SimComputePipeline>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    sim_buffers: Option<Res<GpuSim>>,
+    gpu_sim: Option<Res<GpuSim>>,
     gpu_buffers: Res<RenderAssets<GpuShaderStorageBuffer>>,
-    sim: Res<super::Sim>,
 ) {
-    let Some(sim_buffers) = sim_buffers else {
+    let Some(gpu_sim) = gpu_sim else {
         return;
     };
 
-    let positions = gpu_buffers.get(&sim_buffers.positions).unwrap();
-    let predicted_positions = gpu_buffers.get(&sim_buffers.predicted_positions).unwrap();
-    let velocities = gpu_buffers.get(&sim_buffers.velocities).unwrap();
-    let densities = gpu_buffers.get(&sim_buffers.densities).unwrap();
-    let spatial_lookup = gpu_buffers.get(&sim_buffers.spatial_lookup).unwrap();
-    let start_indices = gpu_buffers.get(&sim_buffers.start_indices).unwrap();
+    let positions = gpu_buffers.get(&gpu_sim.positions).unwrap();
+    let predicted_positions = gpu_buffers.get(&gpu_sim.predicted_positions).unwrap();
+    let velocities = gpu_buffers.get(&gpu_sim.velocities).unwrap();
+    let densities = gpu_buffers.get(&gpu_sim.densities).unwrap();
+    let spatial_lookup = gpu_buffers.get(&gpu_sim.spatial_lookup).unwrap();
+    let start_indices = gpu_buffers.get(&gpu_sim.start_indices).unwrap();
 
-    let mut num_particles = UniformBuffer::from(sim.positions.len() as u32);
-    let mut gravity = sim_buffers.gravity.lock().unwrap();
-    let mut bounds_size = sim_buffers.bounds_size.lock().unwrap();
-    let mut particle_radius = sim_buffers.particle_radius.lock().unwrap();
-    let mut smoothing_radius = sim_buffers.smoothing_radius.lock().unwrap();
-    let mut target_density = sim_buffers.target_density.lock().unwrap();
-    let mut pressure_multiplier = sim_buffers.pressure_multiplier.lock().unwrap();
-    let mut near_pressure_multiplier = sim_buffers.near_pressure_multiplier.lock().unwrap();
-    let mut viscosity = sim_buffers.viscosity.lock().unwrap();
-    let mut delta = sim_buffers.delta.lock().unwrap();
-
-    gravity.set(sim.gravity);
-    bounds_size.set(sim.bounds_size);
-    particle_radius.set(sim.particle_radius);
-    smoothing_radius.set(sim.smoothing_radius);
-    target_density.set(sim.target_density);
-    pressure_multiplier.set(sim.pressure_multiplier);
-    near_pressure_multiplier.set(sim.near_pressure_multiplier);
-    viscosity.set(sim.viscosity);
-    delta.set(1.0 / sim.delta);
+    let mut num_particles = UniformBuffer::from(gpu_sim.num_particles);
+    let mut gravity = gpu_sim.gravity.lock().unwrap();
+    let mut bounds_size = gpu_sim.bounds_size.lock().unwrap();
+    let mut particle_radius = gpu_sim.particle_radius.lock().unwrap();
+    let mut smoothing_radius = gpu_sim.smoothing_radius.lock().unwrap();
+    let mut target_density = gpu_sim.target_density.lock().unwrap();
+    let mut pressure_multiplier = gpu_sim.pressure_multiplier.lock().unwrap();
+    let mut near_pressure_multiplier = gpu_sim.near_pressure_multiplier.lock().unwrap();
+    let mut viscosity = gpu_sim.viscosity.lock().unwrap();
+    let mut delta = gpu_sim.delta.lock().unwrap();
 
     num_particles.write_buffer(&render_device, &render_queue);
     gravity.write_buffer(&render_device, &render_queue);
@@ -381,12 +367,12 @@ fn prepare_bind_groups(
             &pipeline.apply_velocity_and_collide.layout,
             &BindGroupEntries::sequential((
                 gpu_buffers
-                    .get(&sim_buffers.positions)
+                    .get(&gpu_sim.positions)
                     .unwrap()
                     .buffer
                     .as_entire_buffer_binding(),
                 gpu_buffers
-                    .get(&sim_buffers.velocities)
+                    .get(&gpu_sim.velocities)
                     .unwrap()
                     .buffer
                     .as_entire_buffer_binding(),
