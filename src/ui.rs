@@ -249,7 +249,7 @@ pub(super) fn ui(
                             .get(&FrameTimeDiagnosticsPlugin::FPS)
                             .and_then(|fps| fps.smoothed())
                         {
-                            ui.label(value.to_string());
+                            ui.label(value.round().to_string() + "fps");
                         }
 
                         if let Some(position) = window.cursor_position() {
