@@ -193,7 +193,7 @@ struct GpuBufferBindGroups {
     compute_spatial_lookup: BindGroup,
     sort_spatial_lookup: BindGroup,
     set_start_indices: BindGroup,
-    predict_positions: BindGroup,
+    external_forces: BindGroup,
     precalculate_densities: BindGroup,
     apply_viscosity: BindGroup,
     apply_pressure: BindGroup,
@@ -311,9 +311,9 @@ fn prepare_bind_groups(
                 num_particles.into_binding(),
             )),
         ),
-        predict_positions: render_device.create_bind_group(
-            "predict_positions",
-            &pipeline.predict_positions.layout,
+        external_forces: render_device.create_bind_group(
+            "external_forces",
+            &pipeline.external_forces.layout,
             &BindGroupEntries::sequential((
                 positions.buffer.as_entire_buffer_binding(),
                 predicted_positions.buffer.as_entire_buffer_binding(),
@@ -399,7 +399,7 @@ struct SimComputePipeline {
     compute_spatial_lookup: SimStep,
     sort_spatial_lookup: SimStep,
     set_start_indices: SimStep,
-    predict_positions: SimStep,
+    external_forces: SimStep,
     precalculate_densities: SimStep,
     apply_viscosity: SimStep,
     apply_pressure: SimStep,
@@ -446,8 +446,8 @@ impl FromWorld for SimComputePipeline {
                 ),
             ),
         );
-        let predict_positions_layout = render_device.create_bind_group_layout(
-            Some("predict_positions"),
+        let external_forces_layout = render_device.create_bind_group_layout(
+            Some("external_forces"),
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
@@ -562,17 +562,17 @@ impl FromWorld for SimComputePipeline {
                 }),
                 layout: set_start_indices_layout,
             },
-            predict_positions: SimStep {
+            external_forces: SimStep {
                 pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-                    label: Some("predict_positions".into()),
-                    layout: vec![predict_positions_layout.clone()],
+                    label: Some("external_forces".into()),
+                    layout: vec![external_forces_layout.clone()],
                     push_constant_ranges: Vec::new(),
-                    shader: world.load_asset("shaders/predict_positions.wgsl"),
+                    shader: world.load_asset("shaders/external_forces.wgsl"),
                     shader_defs: Vec::new(),
-                    entry_point: "predict_positions".into(),
+                    entry_point: "external_forces".into(),
                     zero_initialize_workgroup_memory: false,
                 }),
-                layout: predict_positions_layout,
+                layout: external_forces_layout,
             },
             precalculate_densities: SimStep {
                 pipeline: pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
@@ -663,7 +663,7 @@ impl render_graph::Node for SimNode {
         };
 
         if let Some(pipeline) =
-            pipeline_cache.get_compute_pipeline(pipeline.predict_positions.pipeline)
+            pipeline_cache.get_compute_pipeline(pipeline.external_forces.pipeline)
         {
             let mut pass =
                 render_context
@@ -673,7 +673,7 @@ impl render_graph::Node for SimNode {
                         ..default()
                     });
 
-            pass.set_bind_group(0, &bind_groups.predict_positions, &[]);
+            pass.set_bind_group(0, &bind_groups.external_forces, &[]);
             pass.set_pipeline(pipeline);
             pass.dispatch_workgroups((gpu_sim.num_particles as f32 / 64.0).ceil() as u32, 1, 1);
         }

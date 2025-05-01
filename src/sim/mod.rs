@@ -93,8 +93,6 @@ fn update_particles(
             }
         };
 
-        // let color = Color::linear_rgba(sim.densities[i].x, 0.0, 0.0, 1.0);
-
         if let Some((_, transform, material_handle)) = particles.get_mut(i) {
             transform.translation = pos.extend(0.0);
             transform.scale = Vec3::new(sim.particle_radius, sim.particle_radius, 1.0);
