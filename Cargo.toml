@@ -35,7 +35,6 @@ bevy = { version = "0.15.3", features = [
     "bevy_text",
     "bevy_window",
     "bevy_winit",
-    "dynamic_linking",
     "multi_threaded",
     "wayland",
 ], default-features = false }
