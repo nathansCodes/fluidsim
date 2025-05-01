@@ -9,6 +9,10 @@
 @group(0) @binding(8) var<uniform> pressure_multiplier: f32;
 @group(0) @binding(9) var<uniform> near_pressure_multiplier: f32;
 @group(0) @binding(10) var<uniform> delta: f32;
+@group(0) @binding(11) var<uniform> mouse_position: vec2f;
+@group(0) @binding(12) var<uniform> interaction: i32;
+@group(0) @binding(13) var<uniform> interaction_radius: f32;
+@group(0) @binding(14) var<uniform> interaction_force: f32;
 
 #import "shaders/utils.wgsl" as utils
 
@@ -99,6 +103,20 @@ fn apply_pressure(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let pressure_acceleration = pressure_force / density;
 
     velocities[particle] -= pressure_acceleration * delta;
+
+    if interaction != 0 {
+        let distance = length(predicted_positions[global_id.x] - mouse_position);
+
+        if distance < interaction_radius {
+            let direction = (predicted_positions[global_id.x] - mouse_position) / distance;
+            let slope = utils::smoothing_kernel_derivative(distance, interaction_radius);
+
+            let strength = interaction_force * interaction_radius;
+
+            velocities[particle] += f32(interaction) * -direction * slope * strength;
+        }
+    }
+
 }
 
 fn density_to_pressure(density: f32) -> f32 {

@@ -19,11 +19,11 @@ pub struct SimCamera;
 #[derive(Component)]
 struct FakeCam;
 
-#[derive(States, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(States, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum InteractionMode {
-    None,
-    Repel,
-    Attract,
+    None = 0,
+    Attract = 1,
+    Repel = -1,
 }
 
 #[derive(Resource)]

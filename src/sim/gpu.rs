@@ -17,7 +17,10 @@ use bevy::{
         storage::{GpuShaderStorageBuffer, ShaderStorageBuffer},
         Render, RenderApp, RenderSet,
     },
+    window::PrimaryWindow,
 };
+
+use crate::controls::{InteractionMode, InteractionSettings, SimCamera};
 
 use super::SimState;
 
@@ -110,6 +113,10 @@ pub(super) struct GpuSim {
     near_pressure_multiplier: Arc<Mutex<UniformBuffer<f32>>>,
     viscosity: Arc<Mutex<UniformBuffer<f32>>>,
     delta: Arc<Mutex<UniformBuffer<f32>>>,
+    mouse_position: Arc<Mutex<UniformBuffer<Vec2>>>,
+    interaction: Arc<Mutex<UniformBuffer<i32>>>,
+    interaction_radius: Arc<Mutex<UniformBuffer<f32>>>,
+    interaction_force: Arc<Mutex<UniformBuffer<f32>>>,
     state: super::SimState,
     old_state: super::SimState,
     num_particles: u32,
@@ -168,6 +175,10 @@ fn setup(
         ))),
         viscosity: Arc::new(Mutex::new(UniformBuffer::from(sim.viscosity))),
         delta: Arc::new(Mutex::new(UniformBuffer::from(1.0 / sim.delta))),
+        mouse_position: Arc::new(Mutex::new(UniformBuffer::from(Vec2::ZERO))),
+        interaction: Arc::new(Mutex::new(UniformBuffer::from(0))),
+        interaction_radius: Arc::new(Mutex::new(UniformBuffer::from(0.0))),
+        interaction_force: Arc::new(Mutex::new(UniformBuffer::from(0.0))),
         state: super::SimState::Running,
         old_state: super::SimState::Prepare,
         num_particles: sim.positions.len() as u32,
@@ -200,12 +211,17 @@ struct GpuBufferBindGroups {
     apply_velocity_and_collide: BindGroup,
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update(
     mut gpu_sim: ResMut<GpuSim>,
     state: Res<State<super::SimState>>,
     sim: Res<super::Sim>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
+    interaction_mode: Res<State<InteractionMode>>,
+    interaction_settings: Res<InteractionSettings>,
+    q_camera: Single<(&Camera, &GlobalTransform), (With<Camera2d>, With<SimCamera>)>,
+    window: Single<&Window, With<PrimaryWindow>>,
 ) {
     gpu_sim.old_state = gpu_sim.state.clone();
     gpu_sim.state = state.clone();
@@ -217,6 +233,10 @@ fn update(
     let mut target_density = gpu_sim.target_density.lock().unwrap();
     let mut pressure_multiplier = gpu_sim.pressure_multiplier.lock().unwrap();
     let mut near_pressure_multiplier = gpu_sim.near_pressure_multiplier.lock().unwrap();
+    let mut mouse_position = gpu_sim.mouse_position.lock().unwrap();
+    let mut interaction = gpu_sim.interaction.lock().unwrap();
+    let mut interaction_radius = gpu_sim.interaction_radius.lock().unwrap();
+    let mut interaction_force = gpu_sim.interaction_force.lock().unwrap();
     let mut viscosity = gpu_sim.viscosity.lock().unwrap();
     let mut delta = gpu_sim.delta.lock().unwrap();
 
@@ -230,6 +250,19 @@ fn update(
     viscosity.set(sim.viscosity);
     delta.set(1.0 / sim.delta);
 
+    if let Some(cursor_pos) = window.cursor_position() {
+        let (camera, camera_transform) = q_camera.into_inner();
+        if let Ok(cursor_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
+            mouse_position.set(cursor_pos);
+            interaction.set(*interaction_mode.get() as i32);
+        } else {
+            interaction.set(0);
+        }
+    }
+
+    interaction_radius.set(interaction_settings.radius);
+    interaction_force.set(interaction_settings.force);
+
     gravity.write_buffer(&render_device, &render_queue);
     bounds_size.write_buffer(&render_device, &render_queue);
     particle_radius.write_buffer(&render_device, &render_queue);
@@ -239,6 +272,10 @@ fn update(
     near_pressure_multiplier.write_buffer(&render_device, &render_queue);
     viscosity.write_buffer(&render_device, &render_queue);
     delta.write_buffer(&render_device, &render_queue);
+    mouse_position.write_buffer(&render_device, &render_queue);
+    interaction.write_buffer(&render_device, &render_queue);
+    interaction_radius.write_buffer(&render_device, &render_queue);
+    interaction_force.write_buffer(&render_device, &render_queue);
 }
 
 fn prepare_bind_groups(
@@ -270,6 +307,10 @@ fn prepare_bind_groups(
     let mut near_pressure_multiplier = gpu_sim.near_pressure_multiplier.lock().unwrap();
     let mut viscosity = gpu_sim.viscosity.lock().unwrap();
     let mut delta = gpu_sim.delta.lock().unwrap();
+    let mut mouse_position = gpu_sim.mouse_position.lock().unwrap();
+    let mut interaction = gpu_sim.interaction.lock().unwrap();
+    let mut interaction_radius = gpu_sim.interaction_radius.lock().unwrap();
+    let mut interaction_force = gpu_sim.interaction_force.lock().unwrap();
 
     num_particles.write_buffer(&render_device, &render_queue);
     gravity.write_buffer(&render_device, &render_queue);
@@ -281,6 +322,10 @@ fn prepare_bind_groups(
     near_pressure_multiplier.write_buffer(&render_device, &render_queue);
     viscosity.write_buffer(&render_device, &render_queue);
     delta.write_buffer(&render_device, &render_queue);
+    mouse_position.write_buffer(&render_device, &render_queue);
+    interaction.write_buffer(&render_device, &render_queue);
+    interaction_radius.write_buffer(&render_device, &render_queue);
+    interaction_force.write_buffer(&render_device, &render_queue);
 
     commands.insert_resource(GpuBufferBindGroups {
         compute_spatial_lookup: render_device.create_bind_group(
@@ -363,6 +408,10 @@ fn prepare_bind_groups(
                 pressure_multiplier.into_binding(),
                 near_pressure_multiplier.into_binding(),
                 delta.into_binding(),
+                mouse_position.into_binding(),
+                interaction.into_binding(),
+                interaction_radius.into_binding(),
+                interaction_force.into_binding(),
             )),
         ),
         apply_velocity_and_collide: render_device.create_bind_group(
@@ -503,6 +552,10 @@ impl FromWorld for SimComputePipeline {
                     uniform_buffer::<f32>(false),
                     uniform_buffer::<f32>(false),
                     uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<Vec2>(false),
+                    uniform_buffer::<i32>(false),
                     uniform_buffer::<f32>(false),
                     uniform_buffer::<f32>(false),
                 ),
