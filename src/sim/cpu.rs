@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bevy::{color, prelude::*, window::PrimaryWindow};
+use bevy::{prelude::*, window::PrimaryWindow};
 use ops::FloatPow;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -266,7 +266,6 @@ impl super::Sim {
 pub fn simulate(
     sim: ResMut<super::Sim>,
     time: Res<Time>,
-    mut gizmos: Gizmos,
     q_camera: Query<(&Camera, &GlobalTransform), (With<Camera2d>, With<SimCamera>)>,
     q_window: Query<&Window, With<PrimaryWindow>>,
     interaction: Res<State<InteractionMode>>,
@@ -341,12 +340,6 @@ pub fn simulate(
     let mouse_pos_maybe = window
         .cursor_position()
         .map(|p| cam.viewport_to_world_2d(global_transform, p).unwrap());
-
-    if *interaction != InteractionMode::None {
-        if let Some(mouse_pos) = mouse_pos_maybe {
-            gizmos.circle_2d(mouse_pos, mouse_settings.radius, color::LinearRgba::GREEN);
-        }
-    }
 
     // viscosity
     (0..num_particles).into_par_iter().for_each(|i| {

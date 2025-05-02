@@ -1,4 +1,5 @@
 use bevy::{
+    color,
     input::mouse::{MouseScrollUnit, MouseWheel},
     prelude::*,
     window::PrimaryWindow,
@@ -47,8 +48,12 @@ fn setup(mut cmds: Commands) {
         .insert(FakeCam);
 }
 
-fn setup_cam_zoom(mut cam: Single<&mut OrthographicProjection, With<SimCamera>>) {
+fn setup_cam_zoom(
+    mut cam: Single<&mut OrthographicProjection, With<SimCamera>>,
+    mut fake_cam: Single<&mut OrthographicProjection, (With<FakeCam>, Without<SimCamera>)>,
+) {
     cam.scale = 0.05;
+    fake_cam.scale = 0.05;
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -74,19 +79,41 @@ fn cam_controller(
     kb: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut next_interaction_mode: ResMut<NextState<InteractionMode>>,
+    interaction_settings: Res<InteractionSettings>,
+    mut gizmos: Gizmos,
 ) {
     let Some(window) = q_window else {
         return;
     };
 
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+
     let (mut projection, cam, mut transform, global_transform) = q_camera.into_inner();
+
+    let (mut fake_projection, fake_cam) = q_fake_camera.into_inner();
+
+    let Ok(current_cursor_pos) = fake_cam.viewport_to_world_2d(global_transform, cursor_pos) else {
+        return;
+    };
 
     if mouse.pressed(MouseButton::Left) {
         if kb.pressed(KeyCode::ShiftLeft) {
             next_interaction_mode.set(InteractionMode::Attract);
+            gizmos.circle_2d(
+                current_cursor_pos,
+                interaction_settings.radius,
+                color::LinearRgba::GREEN,
+            );
             return;
         } else if kb.pressed(KeyCode::AltLeft) {
             next_interaction_mode.set(InteractionMode::Repel);
+            gizmos.circle_2d(
+                current_cursor_pos,
+                interaction_settings.radius,
+                color::LinearRgba::GREEN,
+            );
             return;
         }
     }
@@ -97,17 +124,9 @@ fn cam_controller(
 
     let mut frame_delta = Vec2::ZERO;
 
-    let (mut fake_projection, fake_cam) = q_fake_camera.into_inner();
-
     let mut log_scale = projection.scale.ln();
 
     if let Some(prev_cursor_pos) = *zoom_diff {
-        let Ok(current_cursor_pos) =
-            fake_cam.viewport_to_world_2d(global_transform, window.cursor_position().unwrap())
-        else {
-            return;
-        };
-
         projection.scale = fake_projection.scale;
         frame_delta += prev_cursor_pos - current_cursor_pos;
 
@@ -123,7 +142,7 @@ fn cam_controller(
             };
         fake_projection.scale = log_scale.exp();
         *zoom_diff = Some(
-            cam.viewport_to_world_2d(global_transform, window.cursor_position().unwrap())
+            cam.viewport_to_world_2d(global_transform, cursor_pos)
                 .unwrap(),
         );
     }
