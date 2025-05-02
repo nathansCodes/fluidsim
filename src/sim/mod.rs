@@ -17,7 +17,7 @@ use crate::{
 
 #[derive(Component)]
 #[require(Mesh2d, Transform)]
-struct Particle;
+struct Particle(usize);
 
 #[derive(States, Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub enum SimState {
@@ -51,24 +51,41 @@ pub enum SimEvents {
     ResetSim,
 }
 
-fn update_particles(
+fn spawn_particles(
     mut cmds: Commands,
     sim: Res<Sim>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut q_particles: Query<
-        (Entity, &mut Transform, &MeshMaterial2d<ColorMaterial>),
-        With<Particle>,
-    >,
+) {
+    for (i, pos) in sim.positions.iter().enumerate() {
+        cmds.spawn((
+            Particle(i),
+            Mesh2d(meshes.add(Circle::default())),
+            MeshMaterial2d(materials.add(Color::LinearRgba(color::LinearRgba::gray(0.7)))),
+            Transform::from_xyz(pos.x, pos.y, 0.0).with_scale(Vec3::new(
+                sim.particle_radius,
+                sim.particle_radius,
+                1.0,
+            )),
+        ));
+    }
+}
+
+fn update_particles(
+    sim: Res<Sim>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut q_particles: Query<(&Particle, &mut Transform, &MeshMaterial2d<ColorMaterial>)>,
     debug_data: Res<DebugData>,
     mut gizmos: Gizmos,
 ) {
-    let mut particles = q_particles.iter_mut().collect::<Vec<_>>();
+    if sim.positions.is_empty() {
+        return;
+    }
 
-    for (i, (pos, vel)) in sim.positions.iter().zip(&sim.velocities).enumerate() {
+    for (Particle(i), mut transform, material_handle) in &mut q_particles {
         let color: Color = match debug_data.particle_colors {
             ParticleColoring::Density => {
-                let density = sim.density_at_point(*pos).x;
+                let density = sim.densities[*i].x;
                 color::Srgba::BLUE
                     .mix(&color::Srgba::WHITE, density / sim.target_density)
                     .mix(
@@ -78,6 +95,7 @@ fn update_particles(
                     .into()
             }
             ParticleColoring::Velocity => {
+                let vel = sim.velocities[*i];
                 let factor = (vel.length_squared() / 8.0_f32.squared()).clamp(0.0, 10.0);
                 Oklaba::from(LinearRgba::from(BLUE))
                     .mix(&LinearRgba::from(TEAL).into(), (factor / 2.0).min(1.0))
@@ -93,36 +111,27 @@ fn update_particles(
             }
         };
 
-        if let Some((_, transform, material_handle)) = particles.get_mut(i) {
-            transform.translation = pos.extend(0.0);
-            transform.scale = Vec3::new(sim.particle_radius, sim.particle_radius, 1.0);
+        transform.translation = sim.positions[*i].extend(0.0);
+        transform.scale = Vec3::new(sim.particle_radius, sim.particle_radius, 1.0);
 
-            materials.get_mut(*material_handle).unwrap().color = color;
-            if debug_data
-                .debug_overlay
-                .intersects(DebugOverlay::VelocityArrows)
-            {
-                gizmos.arrow_2d(*pos, pos + vel / sim.delta * 10.0, color);
-            }
-        } else {
-            cmds.spawn((
-                Particle,
-                Mesh2d(meshes.add(Circle::default())),
-                MeshMaterial2d(materials.add(Color::LinearRgba(color::LinearRgba::gray(0.7)))),
-                Transform::from_xyz(pos.x, pos.y, 0.0).with_scale(Vec3::new(
-                    sim.particle_radius,
-                    sim.particle_radius,
-                    1.0,
-                )),
-            ));
-        };
+        materials.get_mut(material_handle).unwrap().color = color;
+        // if debug_data
+        //     .debug_overlay
+        //     .intersects(DebugOverlay::VelocityArrows)
+        // {
+        //     gizmos.arrow_2d(pos, pos + vel / sim.delta * 10.0, color);
+        // }
     }
 
-    if particles.len() > sim.positions.len() {
-        particles[sim.positions.len()..]
-            .iter()
-            .for_each(|(e, ..)| cmds.entity(*e).despawn());
-    }
+    // if particles.len() > sim.positions.len() {
+    //     particles[sim.positions.len()..]
+    //         .iter()
+    //         .for_each(|(e, ..)| cmds.entity(*e).despawn());
+    // }
+}
+
+fn despawn_particles(mut cmds: Commands, particles: Query<Entity, With<Particle>>) {
+    particles.iter().for_each(|e| cmds.entity(e).despawn());
 }
 
 fn recieve_sim_events(
@@ -248,6 +257,8 @@ impl Plugin for SimPlugin {
             .insert_state(Device::CPU)
             .init_resource::<Sim>()
             .init_resource::<DebugData>()
+            .add_systems(OnExit(SimState::Prepare), spawn_particles)
+            .add_systems(OnEnter(SimState::Prepare), despawn_particles)
             .add_systems(
                 // FixedUpdate,
                 Update,

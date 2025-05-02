@@ -20,7 +20,10 @@ use bevy::{
     window::PrimaryWindow,
 };
 
-use crate::controls::{InteractionMode, InteractionSettings, SimCamera};
+use crate::{
+    controls::{InteractionMode, InteractionSettings, SimCamera},
+    debug::{DebugData, ParticleColoring},
+};
 
 use super::SimState;
 
@@ -92,8 +95,10 @@ impl Plugin for SimComputePlugin {
     }
 }
 
-fn cleanup(mut commands: Commands, readback: Single<Entity, With<Readback>>) {
-    commands.entity(readback.into_inner()).despawn();
+fn cleanup(mut commands: Commands, readbacks: Query<Entity, With<Readback>>) {
+    for readback in &readbacks {
+        commands.entity(readback).despawn();
+    }
 }
 
 #[derive(Resource, ExtractResource, Clone, Default)]
@@ -126,6 +131,7 @@ fn setup(
     mut commands: Commands,
     mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
     sim: Res<super::Sim>,
+    debug_data: Res<DebugData>,
 ) {
     let empty_data = vec![0u32; sim.positions.len() * 2];
 
@@ -156,6 +162,19 @@ fn setup(
     commands
         .spawn(Readback::buffer(positions.clone()))
         .observe(on_readback_positions);
+
+    match debug_data.particle_colors {
+        ParticleColoring::Density => {
+            commands
+                .spawn(Readback::buffer(densities.clone()))
+                .observe(on_readback_densities);
+        }
+        ParticleColoring::Velocity => {
+            commands
+                .spawn(Readback::buffer(velocities.clone()))
+                .observe(on_readback_velocities);
+        }
+    }
 
     commands.insert_resource(GpuSim {
         positions,
@@ -197,6 +216,34 @@ fn on_readback_positions(
     let data: Vec<Vec2> = trigger.event().to_shader_type();
 
     sim.positions = data;
+}
+
+fn on_readback_densities(
+    trigger: Trigger<ReadbackComplete>,
+    mut sim: ResMut<super::Sim>,
+    state: Res<State<super::SimState>>,
+) {
+    if *state.get() == super::SimState::Paused {
+        return;
+    }
+
+    let data: Vec<Vec2> = trigger.event().to_shader_type();
+
+    sim.densities = data;
+}
+
+fn on_readback_velocities(
+    trigger: Trigger<ReadbackComplete>,
+    mut sim: ResMut<super::Sim>,
+    state: Res<State<super::SimState>>,
+) {
+    if *state.get() == super::SimState::Paused {
+        return;
+    }
+
+    let data: Vec<Vec2> = trigger.event().to_shader_type();
+
+    sim.velocities = data;
 }
 
 #[derive(Resource)]
