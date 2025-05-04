@@ -11,7 +11,7 @@ use bevy::{
 };
 
 use crate::{
-    debug::{debug_overlay, DebugData, DebugOverlay, ParticleColoring},
+    debug::{debug_overlay, DebugData, ParticleColoring},
     ui,
 };
 
@@ -76,7 +76,6 @@ fn update_particles(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut q_particles: Query<(&Particle, &mut Transform, &MeshMaterial2d<ColorMaterial>)>,
     debug_data: Res<DebugData>,
-    mut gizmos: Gizmos,
 ) {
     if sim.positions.is_empty() {
         return;
