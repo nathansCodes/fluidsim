@@ -138,7 +138,7 @@ pub(super) fn ui(
         .show(ctx, |ui| {
             collapsing_open(ui, "Simulation Settings", |ui| {
                 labeled_vec2(ui, "Gravity", &mut sim.gravity);
-                labeled_drag_value(ui, "Particle Size", &mut sim.particle_radius, 0.005);
+                labeled_drag_value(ui, "Particle Size", &mut sim.particle_diameter, 0.005);
                 labeled_drag_value(ui, "Smoothing Radius", &mut sim.smoothing_radius, 0.025);
                 labeled_drag_value(ui, "Pressure Multiplier", &mut sim.pressure_multiplier, 1.0);
                 labeled_drag_value(

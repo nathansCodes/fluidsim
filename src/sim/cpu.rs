@@ -404,8 +404,8 @@ pub fn simulate(
         let vel = sim.velocities[i];
         sim.positions[i] += vel * delta;
 
-        let half_bounds_width = sim.bounds_size.x / 2.0 - sim.particle_radius;
-        let half_bounds_height = sim.bounds_size.y / 2.0 - sim.particle_radius;
+        let half_bounds_width = sim.bounds_size.x / 2.0 - sim.particle_diameter / 2.0;
+        let half_bounds_height = sim.bounds_size.y / 2.0 - sim.particle_diameter / 2.0;
 
         if sim.positions[i].y < -half_bounds_height {
             sim.positions[i].y = -half_bounds_height;

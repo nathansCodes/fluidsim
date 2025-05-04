@@ -63,8 +63,8 @@ fn spawn_particles(
             Mesh2d(meshes.add(Circle::default())),
             MeshMaterial2d(materials.add(Color::LinearRgba(color::LinearRgba::gray(0.7)))),
             Transform::from_xyz(pos.x, pos.y, 0.0).with_scale(Vec3::new(
-                sim.particle_radius,
-                sim.particle_radius,
+                sim.particle_diameter,
+                sim.particle_diameter,
                 1.0,
             )),
         ));
@@ -111,7 +111,7 @@ fn update_particles(
         };
 
         transform.translation = sim.positions[*i].extend(0.0);
-        transform.scale = Vec3::new(sim.particle_radius, sim.particle_radius, 1.0);
+        transform.scale = Vec3::new(sim.particle_diameter, sim.particle_diameter, 1.0);
 
         materials.get_mut(material_handle).unwrap().color = color;
         // if debug_data
@@ -121,12 +121,6 @@ fn update_particles(
         //     gizmos.arrow_2d(pos, pos + vel / sim.delta * 10.0, color);
         // }
     }
-
-    // if particles.len() > sim.positions.len() {
-    //     particles[sim.positions.len()..]
-    //         .iter()
-    //         .for_each(|(e, ..)| cmds.entity(*e).despawn());
-    // }
 }
 
 fn despawn_particles(mut cmds: Commands, particles: Query<Entity, With<Particle>>) {
@@ -166,7 +160,7 @@ fn recieve_sim_events(
                 let particles_per_row = info.num_particles.isqrt() as f32;
                 let particles_per_col = (info.num_particles as f32 - 1.0) / particles_per_row + 1.0;
 
-                let spacing = sim.particle_radius * 2.0 + info.spacing;
+                let spacing = sim.particle_diameter * 2.0 + info.spacing;
 
                 for i in 0..info.num_particles {
                     let x =
@@ -209,7 +203,7 @@ pub struct Sim {
     pub start_indices: Vec<usize>,
     pub gravity: Vec2,
     pub bounds_size: Vec2,
-    pub particle_radius: f32,
+    pub particle_diameter: f32,
     pub smoothing_radius: f32,
     pub target_density: f32,
     pub pressure_multiplier: f32,
@@ -229,7 +223,7 @@ impl Default for Sim {
             start_indices: default(),
             gravity: Vec2::new(0.0, -10.0),
             bounds_size: Vec2::new(16.0, 9.0) * 2.0,
-            particle_radius: 0.1,
+            particle_diameter: 0.1,
             smoothing_radius: 1.2,
             target_density: 10.0,
             pressure_multiplier: 1000.0,

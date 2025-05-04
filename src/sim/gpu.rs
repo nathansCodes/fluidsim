@@ -111,7 +111,7 @@ pub(super) struct GpuSim {
     start_indices: Handle<ShaderStorageBuffer>,
     gravity: Arc<Mutex<UniformBuffer<Vec2>>>,
     bounds_size: Arc<Mutex<UniformBuffer<Vec2>>>,
-    particle_radius: Arc<Mutex<UniformBuffer<f32>>>,
+    particle_diameter: Arc<Mutex<UniformBuffer<f32>>>,
     smoothing_radius: Arc<Mutex<UniformBuffer<f32>>>,
     target_density: Arc<Mutex<UniformBuffer<f32>>>,
     pressure_multiplier: Arc<Mutex<UniformBuffer<f32>>>,
@@ -185,7 +185,7 @@ fn setup(
         start_indices,
         gravity: Arc::new(Mutex::new(UniformBuffer::from(sim.gravity))),
         bounds_size: Arc::new(Mutex::new(UniformBuffer::from(sim.bounds_size))),
-        particle_radius: Arc::new(Mutex::new(UniformBuffer::from(sim.particle_radius))),
+        particle_diameter: Arc::new(Mutex::new(UniformBuffer::from(sim.particle_diameter))),
         smoothing_radius: Arc::new(Mutex::new(UniformBuffer::from(sim.smoothing_radius))),
         target_density: Arc::new(Mutex::new(UniformBuffer::from(sim.target_density))),
         pressure_multiplier: Arc::new(Mutex::new(UniformBuffer::from(sim.pressure_multiplier))),
@@ -279,7 +279,7 @@ fn update(
 
     let mut gravity = gpu_sim.gravity.lock().unwrap();
     let mut bounds_size = gpu_sim.bounds_size.lock().unwrap();
-    let mut particle_radius = gpu_sim.particle_radius.lock().unwrap();
+    let mut particle_diameter = gpu_sim.particle_diameter.lock().unwrap();
     let mut smoothing_radius = gpu_sim.smoothing_radius.lock().unwrap();
     let mut target_density = gpu_sim.target_density.lock().unwrap();
     let mut pressure_multiplier = gpu_sim.pressure_multiplier.lock().unwrap();
@@ -293,7 +293,7 @@ fn update(
 
     gravity.set(sim.gravity);
     bounds_size.set(sim.bounds_size);
-    particle_radius.set(sim.particle_radius);
+    particle_diameter.set(sim.particle_diameter);
     smoothing_radius.set(sim.smoothing_radius);
     target_density.set(sim.target_density);
     pressure_multiplier.set(sim.pressure_multiplier);
@@ -316,7 +316,7 @@ fn update(
 
     gravity.write_buffer(&render_device, &render_queue);
     bounds_size.write_buffer(&render_device, &render_queue);
-    particle_radius.write_buffer(&render_device, &render_queue);
+    particle_diameter.write_buffer(&render_device, &render_queue);
     smoothing_radius.write_buffer(&render_device, &render_queue);
     target_density.write_buffer(&render_device, &render_queue);
     pressure_multiplier.write_buffer(&render_device, &render_queue);
@@ -351,7 +351,7 @@ fn prepare_bind_groups(
     let mut num_particles = UniformBuffer::from(gpu_sim.num_particles);
     let mut gravity = gpu_sim.gravity.lock().unwrap();
     let mut bounds_size = gpu_sim.bounds_size.lock().unwrap();
-    let mut particle_radius = gpu_sim.particle_radius.lock().unwrap();
+    let mut particle_diameter = gpu_sim.particle_diameter.lock().unwrap();
     let mut smoothing_radius = gpu_sim.smoothing_radius.lock().unwrap();
     let mut target_density = gpu_sim.target_density.lock().unwrap();
     let mut pressure_multiplier = gpu_sim.pressure_multiplier.lock().unwrap();
@@ -366,7 +366,7 @@ fn prepare_bind_groups(
     num_particles.write_buffer(&render_device, &render_queue);
     gravity.write_buffer(&render_device, &render_queue);
     bounds_size.write_buffer(&render_device, &render_queue);
-    particle_radius.write_buffer(&render_device, &render_queue);
+    particle_diameter.write_buffer(&render_device, &render_queue);
     smoothing_radius.write_buffer(&render_device, &render_queue);
     target_density.write_buffer(&render_device, &render_queue);
     pressure_multiplier.write_buffer(&render_device, &render_queue);
@@ -480,7 +480,7 @@ fn prepare_bind_groups(
                     .buffer
                     .as_entire_buffer_binding(),
                 bounds_size.into_binding(),
-                particle_radius.into_binding(),
+                particle_diameter.into_binding(),
                 delta.into_binding(),
             )),
         ),
