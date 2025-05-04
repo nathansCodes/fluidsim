@@ -268,8 +268,12 @@ fn update(
     interaction_mode: Res<State<InteractionMode>>,
     interaction_settings: Res<InteractionSettings>,
     q_camera: Single<(&Camera, &GlobalTransform), (With<Camera2d>, With<SimCamera>)>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
 ) {
+    let Some(window) = window else {
+        return;
+    };
+
     gpu_sim.old_state = gpu_sim.state.clone();
     gpu_sim.state = state.clone();
 
