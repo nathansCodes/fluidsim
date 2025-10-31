@@ -11,7 +11,7 @@ use bevy::{
 };
 
 use crate::{
-    debug::{debug_overlay, DebugData, ParticleColoring},
+    debug::{debug_overlay, DebugData, DebugOverlay, ParticleColoring},
     ui,
 };
 
@@ -76,6 +76,7 @@ fn update_particles(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut q_particles: Query<(&Particle, &mut Transform, &MeshMaterial2d<ColorMaterial>)>,
     debug_data: Res<DebugData>,
+    mut gizmos: Gizmos,
 ) {
     if sim.positions.is_empty() {
         return;
@@ -114,12 +115,14 @@ fn update_particles(
         transform.scale = Vec3::new(sim.particle_diameter, sim.particle_diameter, 1.0);
 
         materials.get_mut(material_handle).unwrap().color = color;
-        // if debug_data
-        //     .debug_overlay
-        //     .intersects(DebugOverlay::VelocityArrows)
-        // {
-        //     gizmos.arrow_2d(pos, pos + vel / sim.delta * 10.0, color);
-        // }
+        if debug_data
+            .debug_overlay
+            .intersects(DebugOverlay::VelocityArrows)
+        {
+            let pos = sim.positions[*i];
+            let vel = sim.velocities[*i];
+            gizmos.arrow_2d(pos, pos + vel / sim.delta * 10.0, color);
+        }
     }
 }
 
