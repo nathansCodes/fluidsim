@@ -137,7 +137,25 @@ pub(super) fn ui(
         .min_width(300.0)
         .show(ctx, |ui| {
             collapsing_open(ui, "Simulation Settings", |ui| {
-                labeled_vec2(ui, "Gravity", &mut sim.gravity);
+                egui::ComboBox::from_label("Gravity Mode")
+                    .selected_text(if sim.planetary_gravity {
+                        "Planetary"
+                    } else {
+                        "Uniform"
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut sim.planetary_gravity, false, "Uniform");
+                        ui.selectable_value(&mut sim.planetary_gravity, true, "Planetary");
+                    });
+
+                if sim.planetary_gravity {
+                    labeled_drag_value(ui, "Gravity", &mut sim.gravity.y, 10.0);
+                    labeled_vec2(ui, "Position", &mut sim.planet_position);
+                    labeled_drag_value(ui, "Radius", &mut sim.planet_radius, 0.1);
+                } else {
+                    labeled_vec2(ui, "Gravity", &mut sim.gravity);
+                }
+
                 labeled_drag_value(ui, "Particle Size", &mut sim.particle_diameter, 0.005);
                 labeled_drag_value(ui, "Smoothing Radius", &mut sim.smoothing_radius, 0.025);
                 labeled_drag_value(ui, "Pressure Multiplier", &mut sim.pressure_multiplier, 1.0);
@@ -304,6 +322,13 @@ fn draw_bounds(sim: Res<Sim>, mut gizmos: Gizmos) {
         sim.bounds_size,
         color::LinearRgba::RED,
     );
+    if sim.planetary_gravity {
+        gizmos.circle_2d(
+            Isometry2d::new(sim.planet_position, Rot2::IDENTITY),
+            sim.planet_radius,
+            color::LinearRgba::BLUE,
+        );
+    }
 }
 
 pub struct UiPlugin;

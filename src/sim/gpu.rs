@@ -110,6 +110,9 @@ pub(super) struct GpuSim {
     spatial_lookup: Handle<ShaderStorageBuffer>,
     start_indices: Handle<ShaderStorageBuffer>,
     gravity: Arc<Mutex<UniformBuffer<Vec2>>>,
+    planetary_gravity: Arc<Mutex<UniformBuffer<u32>>>,
+    planet_position: Arc<Mutex<UniformBuffer<Vec2>>>,
+    planet_radius: Arc<Mutex<UniformBuffer<f32>>>,
     bounds_size: Arc<Mutex<UniformBuffer<Vec2>>>,
     particle_diameter: Arc<Mutex<UniformBuffer<f32>>>,
     smoothing_radius: Arc<Mutex<UniformBuffer<f32>>>,
@@ -184,6 +187,11 @@ fn setup(
         spatial_lookup,
         start_indices,
         gravity: Arc::new(Mutex::new(UniformBuffer::from(sim.gravity))),
+        planetary_gravity: Arc::new(Mutex::new(UniformBuffer::from(
+            sim.planetary_gravity as u32,
+        ))),
+        planet_position: Arc::new(Mutex::new(UniformBuffer::from(sim.planet_position))),
+        planet_radius: Arc::new(Mutex::new(UniformBuffer::from(sim.planet_radius))),
         bounds_size: Arc::new(Mutex::new(UniformBuffer::from(sim.bounds_size))),
         particle_diameter: Arc::new(Mutex::new(UniformBuffer::from(sim.particle_diameter))),
         smoothing_radius: Arc::new(Mutex::new(UniformBuffer::from(sim.smoothing_radius))),
@@ -278,6 +286,9 @@ fn update(
     gpu_sim.state = state.clone();
 
     let mut gravity = gpu_sim.gravity.lock().unwrap();
+    let mut planetary_gravity = gpu_sim.planetary_gravity.lock().unwrap();
+    let mut planet_position = gpu_sim.planet_position.lock().unwrap();
+    let mut planet_radius = gpu_sim.planet_radius.lock().unwrap();
     let mut bounds_size = gpu_sim.bounds_size.lock().unwrap();
     let mut particle_diameter = gpu_sim.particle_diameter.lock().unwrap();
     let mut smoothing_radius = gpu_sim.smoothing_radius.lock().unwrap();
@@ -292,6 +303,9 @@ fn update(
     let mut delta = gpu_sim.delta.lock().unwrap();
 
     gravity.set(sim.gravity);
+    planetary_gravity.set(sim.planetary_gravity as u32);
+    planet_position.set(sim.planet_position);
+    planet_radius.set(sim.planet_radius);
     bounds_size.set(sim.bounds_size);
     particle_diameter.set(sim.particle_diameter);
     smoothing_radius.set(sim.smoothing_radius);
@@ -315,6 +329,9 @@ fn update(
     interaction_force.set(interaction_settings.force);
 
     gravity.write_buffer(&render_device, &render_queue);
+    planetary_gravity.write_buffer(&render_device, &render_queue);
+    planet_position.write_buffer(&render_device, &render_queue);
+    planet_radius.write_buffer(&render_device, &render_queue);
     bounds_size.write_buffer(&render_device, &render_queue);
     particle_diameter.write_buffer(&render_device, &render_queue);
     smoothing_radius.write_buffer(&render_device, &render_queue);
@@ -350,6 +367,9 @@ fn prepare_bind_groups(
 
     let mut num_particles = UniformBuffer::from(gpu_sim.num_particles);
     let mut gravity = gpu_sim.gravity.lock().unwrap();
+    let mut planetary_gravity = gpu_sim.planetary_gravity.lock().unwrap();
+    let mut planet_position = gpu_sim.planet_position.lock().unwrap();
+    let mut planet_radius = gpu_sim.planet_radius.lock().unwrap();
     let mut bounds_size = gpu_sim.bounds_size.lock().unwrap();
     let mut particle_diameter = gpu_sim.particle_diameter.lock().unwrap();
     let mut smoothing_radius = gpu_sim.smoothing_radius.lock().unwrap();
@@ -365,6 +385,9 @@ fn prepare_bind_groups(
 
     num_particles.write_buffer(&render_device, &render_queue);
     gravity.write_buffer(&render_device, &render_queue);
+    planetary_gravity.write_buffer(&render_device, &render_queue);
+    planet_position.write_buffer(&render_device, &render_queue);
+    planet_radius.write_buffer(&render_device, &render_queue);
     bounds_size.write_buffer(&render_device, &render_queue);
     particle_diameter.write_buffer(&render_device, &render_queue);
     smoothing_radius.write_buffer(&render_device, &render_queue);
@@ -415,6 +438,8 @@ fn prepare_bind_groups(
                 predicted_positions.buffer.as_entire_buffer_binding(),
                 velocities.buffer.as_entire_buffer_binding(),
                 gravity.into_binding(),
+                planetary_gravity.into_binding(),
+                planet_position.into_binding(),
                 delta.into_binding(),
             )),
         ),
@@ -482,6 +507,9 @@ fn prepare_bind_groups(
                 bounds_size.into_binding(),
                 particle_diameter.into_binding(),
                 delta.into_binding(),
+                planetary_gravity.into_binding(),
+                planet_position.into_binding(),
+                planet_radius.into_binding(),
             )),
         ),
     });
@@ -555,6 +583,8 @@ impl FromWorld for SimComputePipeline {
                     storage_buffer::<Vec<Vec2>>(false),
                     storage_buffer::<Vec<Vec2>>(false),
                     uniform_buffer::<Vec2>(false),
+                    uniform_buffer::<u32>(false),
+                    uniform_buffer::<Vec2>(false),
                     uniform_buffer::<f32>(false),
                 ),
             ),
@@ -621,6 +651,9 @@ impl FromWorld for SimComputePipeline {
                     storage_buffer::<Vec<Vec2>>(false),
                     uniform_buffer::<Vec2>(false),
                     uniform_buffer::<f32>(false),
+                    uniform_buffer::<f32>(false),
+                    uniform_buffer::<u32>(false),
+                    uniform_buffer::<Vec2>(false),
                     uniform_buffer::<f32>(false),
                 ),
             ),

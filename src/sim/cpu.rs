@@ -326,7 +326,21 @@ pub fn simulate(
     (0..num_particles).into_par_iter().for_each(|i| {
         let mut sim = sim_shared.lock().unwrap();
 
-        sim.velocities[i] += gravity * delta;
+        let mut force = gravity;
+
+        if sim.planetary_gravity {
+            let relative_position = sim.positions[i] - sim.planet_position;
+            let sqr_dst = relative_position.x.powi(2) + relative_position.y.powi(2);
+            // direction from origin to position
+            let direction = sim.positions[i] / sqr_dst.sqrt();
+
+            //let angle = atan(direction.y / direction.x);
+
+            //let rotated_gravity = rotate_around_origin(gravity, angle);
+            force = direction * (gravity.y / sqr_dst);
+        }
+
+        sim.velocities[i] += force * delta;
         sim.predicted_positions[i] = sim.positions[i] + sim.velocities[i] * delta;
     });
 
@@ -406,6 +420,18 @@ pub fn simulate(
 
         let half_bounds_width = sim.bounds_size.x / 2.0 - sim.particle_diameter / 2.0;
         let half_bounds_height = sim.bounds_size.y / 2.0 - sim.particle_diameter / 2.0;
+
+        if sim.planetary_gravity {
+            let relative_position = sim.positions[i] - sim.planet_position;
+            let sqr_dst = relative_position.x.powi(2) + relative_position.y.powi(2);
+
+            if sqr_dst < sim.planet_radius * sim.planet_radius {
+                let direction = relative_position / sqr_dst.sqrt();
+                let vel = sim.velocities[i];
+                sim.velocities[i] = (vel - 2.0 * vel.dot(direction) * direction) * 0.8;
+                sim.positions[i] = sim.planet_position + direction * sim.planet_radius;
+            }
+        }
 
         if sim.positions[i].y < -half_bounds_height {
             sim.positions[i].y = -half_bounds_height;
